@@ -1,0 +1,2480 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCHAT - 심플 P2P 채팅</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+  <style>
+    :root {
+      --main-bg: #2e3440;
+      --sidebar-bg: #3b4252;
+      --header-bg: #434c5e;
+      --text-color: #eceff4;
+      --input-bg: #4c566a;
+      --highlight: #5e81ac;
+      --accent: #81a1c1;
+      --success: #a3be8c;
+      --error: #bf616a;
+      --warning: #ebcb8b;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+    
+    body {
+      background-color: var(--main-bg);
+      color: var(--text-color);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .app-container {
+      display: flex;
+      height: 100%;
+      overflow: hidden;
+    }
+    
+    .sidebar {
+      width: 280px;
+      background-color: var(--sidebar-bg);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    .header {
+      padding: 16px;
+      background-color: var(--header-bg);
+      font-weight: bold;
+      font-size: 16px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .room-list {
+      flex-grow: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    
+    .room-item {
+      padding: 10px 14px;
+      margin-bottom: 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+    }
+    
+    .room-item:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .room-item.active {
+      background-color: var(--accent);
+      color: white;
+    }
+    
+    .room-item-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background-color: var(--highlight);
+      margin-right: 12px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: white;
+    }
+    
+    .room-item-info {
+      flex-grow: 1;
+      overflow: hidden;
+    }
+    
+    .room-item-name {
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .room-item-badge {
+      background-color: var(--highlight);
+      color: white;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-left: 8px;
+    }
+    
+    .content {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .chat-header {
+      padding: 16px;
+      background-color: var(--header-bg);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+    }
+    
+    .chat-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-right: auto;
+    }
+    
+    .chat-area {
+      flex-grow: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    .message {
+      display: flex;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .message-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: var(--highlight);
+      margin-right: 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: white;
+    }
+    
+    .message-avatar.admin {
+      background-color: var(--warning);
+    }
+    
+    .message-avatar.manager {
+      background-color: var(--success);
+    }
+    
+    .message-content {
+      flex-grow: 1;
+      max-width: calc(100% - 60px);
+    }
+    
+    .message-sender {
+      font-weight: bold;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+    }
+    
+    .sender-badge {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: normal;
+    }
+    
+    .sender-badge.host {
+      background-color: var(--warning);
+      color: #2e3440;
+    }
+    
+    .sender-badge.manager {
+      background-color: var(--success);
+      color: #2e3440;
+    }
+    
+    .message-text {
+      color: var(--text-color);
+      word-break: break-word;
+      line-height: 1.5;
+      background-color: rgba(255, 255, 255, 0.05);
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+    
+    .input-area {
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      background-color: rgba(0, 0, 0, 0.2);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    .message-input {
+      flex-grow: 1;
+      padding: 12px 16px;
+      border-radius: 6px;
+      background-color: var(--input-bg);
+      border: none;
+      color: var(--text-color);
+      outline: none;
+      font-size: 15px;
+      transition: box-shadow 0.2s ease;
+    }
+    
+    .message-input:focus {
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    
+    .emoji-button {
+      margin-right: 10px;
+      background: none;
+      border: none;
+      color: var(--text-color);
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease;
+    }
+    
+    .emoji-button:hover {
+      transform: scale(1.1);
+    }
+    
+    .emoji-picker {
+      position: absolute;
+      bottom: 80px;
+      right: 16px;
+      background-color: var(--sidebar-bg);
+      border-radius: 8px;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+      padding: 12px;
+      display: none;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 8px;
+      max-width: 360px;
+      max-height: 300px;
+      overflow-y: auto;
+      z-index: 10;
+    }
+    
+    .emoji-picker.active {
+      display: grid;
+    }
+    
+    .emoji-item {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.2s ease;
+    }
+    
+    .emoji-item:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .button {
+      padding: 10px 16px;
+      margin-left: 10px;
+      background-color: var(--highlight);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    
+    .button:hover {
+      background-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    
+    .button:active {
+      transform: translateY(0);
+    }
+    
+    .button:disabled {
+      background-color: #72767d;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .button.primary {
+      background-color: var(--highlight);
+    }
+    
+    .button.danger {
+      background-color: var(--error);
+    }
+    
+    .button.success {
+      background-color: var(--success);
+    }
+    
+    .controls {
+      display: flex;
+      margin-top: 16px;
+    }
+    
+    .user-status {
+      margin-left: 10px;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.7);
+      display: flex;
+      align-items: center;
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    
+    .status-indicator.online {
+      background-color: var(--success);
+    }
+    
+    .status-indicator.connecting {
+      background-color: var(--warning);
+    }
+    
+    .room-input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 14px;
+      background-color: var(--input-bg);
+      border: none;
+      border-radius: 6px;
+      color: var(--text-color);
+      outline: none;
+      font-size: 15px;
+      transition: box-shadow 0.2s ease;
+    }
+    
+    .room-input:focus {
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    
+    .input-group {
+      margin-bottom: 16px;
+    }
+    
+    .input-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+    
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .checkbox-group input[type="checkbox"] {
+      margin-right: 8px;
+    }
+    
+    .welcome-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 20px;
+      background: linear-gradient(135deg, var(--main-bg), var(--header-bg));
+    }
+    
+    .logo {
+      font-size: 40px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      color: var(--accent);
+      letter-spacing: 2px;
+    }
+    
+    .logo-badge {
+      font-size: 14px;
+      background-color: var(--accent);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 20px;
+      margin-left: 8px;
+      vertical-align: middle;
+      font-weight: normal;
+    }
+    
+    .welcome-subtitle {
+      margin-bottom: 30px;
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.7);
+      text-align: center;
+    }
+    
+    .welcome-box {
+      background-color: var(--sidebar-bg);
+      padding: 30px;
+      border-radius: 10px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    .tab-container {
+      margin-bottom: 24px;
+      display: flex;
+      border-radius: 8px;
+      overflow: hidden;
+      background-color: rgba(0, 0, 0, 0.2);
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 12px 0;
+      text-align: center;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .tab.active {
+      background-color: var(--highlight);
+      color: white;
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .action-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    
+    .action-buttons .button {
+      flex: 1;
+      margin: 0;
+    }
+    
+    .notification-permission {
+      margin-top: 30px;
+      background-color: rgba(255, 255, 255, 0.05);
+      padding: 16px;
+      border-radius: 8px;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .notification-text {
+      margin-bottom: 12px;
+    }
+    
+    /* Setup screens */
+    .welcome-screen, .chat-container, .public-rooms-screen {
+      display: none;
+    }
+    
+    .active-screen {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    
+    /* Public rooms styling */
+    .public-rooms-screen {
+      background-color: var(--main-bg);
+    }
+    
+    .public-rooms-header {
+      padding: 16px;
+      background-color: var(--header-bg);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .public-rooms-header h2 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    
+    .public-rooms-content {
+      padding: 20px;
+      overflow-y: auto;
+      flex-grow: 1;
+    }
+    
+    .public-room-card {
+      background-color: var(--sidebar-bg);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      cursor: pointer;
+    }
+    
+    .public-room-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    }
+    
+    .public-room-icon {
+      width: 48px;
+      height: 48px;
+      background-color: var(--highlight);
+      border-radius: 16px;
+      margin-right: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: white;
+      flex-shrink: 0;
+    }
+    
+    .public-room-info {
+      flex-grow: 1;
+    }
+    
+    .public-room-name {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .public-room-participants {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 14px;
+    }
+    
+    .public-room-join {
+      background-color: var(--highlight);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background-color 0.2s ease;
+    }
+    
+    .public-room-join:hover {
+      background-color: var(--accent);
+    }
+    
+    .no-rooms-message {
+      text-align: center;
+      padding: 40px 0;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .tooltip {
+      position: relative;
+      display: inline-block;
+    }
+    
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 120px;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      text-align: center;
+      border-radius: 6px;
+      padding: 5px 0;
+      position: absolute;
+      z-index: 1;
+      bottom: 125%;
+      left: 50%;
+      margin-left: -60px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
+    
+    .context-menu {
+      position: absolute;
+      background-color: var(--sidebar-bg);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      padding: 8px 0;
+      min-width: 160px;
+      z-index: 1000;
+      display: none;
+    }
+    
+    .context-menu.active {
+      display: block;
+    }
+    
+    .context-menu-item {
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+      font-size: 14px;
+    }
+    
+    .context-menu-item:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .context-menu-item.danger {
+      color: var(--error);
+    }
+    
+    .invite-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    .invite-modal.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    
+    .invite-modal-content {
+      background-color: var(--sidebar-bg);
+      border-radius: 10px;
+      padding: 24px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+    }
+    
+    .invite-modal.active .invite-modal-content {
+      transform: translateY(0);
+    }
+    
+    .invite-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .invite-modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .invite-modal-close {
+      background: none;
+      border: none;
+      color: var(--text-color);
+      font-size: 20px;
+      cursor: pointer;
+    }
+    
+    .invite-code-display {
+      background-color: rgba(0, 0, 0, 0.2);
+      padding: 12px;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 24px;
+      letter-spacing: 2px;
+      margin-bottom: 16px;
+      user-select: all;
+    }
+    
+    .confirmation-dialog {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    .confirmation-dialog.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    
+    .confirmation-content {
+      background-color: var(--sidebar-bg);
+      border-radius: 10px;
+      padding: 24px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    }
+    
+    .confirmation-message {
+      margin-bottom: 20px;
+      font-size: 16px;
+    }
+    
+    .confirmation-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    
+    /* Join request styling */
+    .join-request {
+      background-color: rgba(94, 129, 172, 0.2);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      animation: slideIn 0.3s ease;
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateX(-20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .join-request-info {
+      display: flex;
+      align-items: center;
+    }
+    
+    .join-request-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: var(--highlight);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 12px;
+      font-weight: bold;
+      color: white;
+    }
+    
+    .join-request-name {
+      font-weight: 500;
+    }
+    
+    .join-request-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .join-request-button {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: none;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .join-request-button.accept {
+      background-color: var(--success);
+      color: white;
+    }
+    
+    .join-request-button.reject {
+      background-color: var(--error);
+      color: white;
+    }
+    
+    .footer {
+      padding: 8px 16px;
+      text-align: center;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      background-color: rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Loading spinner */
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: var(--text-color);
+      animation: spin 1s ease-in-out infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(94, 129, 172, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(94, 129, 172, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(94, 129, 172, 0); }
+    }
+  </style>
+</head>
+<body>
+  <!-- 시작 화면 -->
+  <div id="welcome-screen" class="welcome-screen active-screen">
+    <div class="logo">CCHAT <span class="logo-badge">P2P</span></div>
+    <p class="welcome-subtitle">서버 없이 동작하는 간단한 P2P 채팅</p>
+    
+    <div class="welcome-box">
+      <div class="tab-container">
+        <div class="tab active" data-tab="create">새 방 만들기</div>
+        <div class="tab" data-tab="join">방 참여하기</div>
+        <div class="tab" data-tab="public">공개 방 찾기</div>
+      </div>
+      
+      <div class="tab-content active" data-tab="create">
+        <div class="input-group">
+          <label for="nickname-create">닉네임</label>
+          <input type="text" id="nickname-create" class="room-input" placeholder="닉네임을 입력하세요">
+        </div>
+        <div class="input-group">
+          <label for="room-name">방 이름</label>
+          <input type="text" id="room-name" class="room-input" placeholder="방 이름을 입력하세요">
+        </div>
+        <div class="input-group">
+          <label>초대 코드 형식</label>
+          <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+            <div style="flex: 1;">
+              <input type="radio" id="code-type-letters" name="code-type" value="letters" checked>
+              <label for="code-type-letters">3자리 문자(ABC)</label>
+            </div>
+            <div style="flex: 1;">
+              <input type="radio" id="code-type-numbers" name="code-type" value="numbers">
+              <label for="code-type-numbers">4자리 숫자(1234)</label>
+            </div>
+          </div>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="public-room" checked>
+          <label for="public-room">공개 방으로 설정 (다른 사용자가 방 목록에서 볼 수 있음)</label>
+        </div>
+        <button id="create-room-confirm" class="button primary" style="width: 100%">방 만들기</button>
+      </div>
+      
+      <div class="tab-content" data-tab="join">
+        <div class="input-group">
+          <label for="nickname-join">닉네임</label>
+          <input type="text" id="nickname-join" class="room-input" placeholder="닉네임을 입력하세요">
+        </div>
+        <div class="input-group">
+          <label for="room-code">초대 코드</label>
+          <input type="text" id="room-code" class="room-input" placeholder="초대 코드를 입력하세요">
+        </div>
+        <button id="join-room-confirm" class="button primary" style="width: 100%">방 참여하기</button>
+      </div>
+      
+      <div class="tab-content" data-tab="public">
+        <p style="margin-bottom: 16px;">공개된 방 목록을 확인하려면 아래 버튼을 클릭하세요.</p>
+        <button id="find-public-rooms" class="button primary" style="width: 100%">공개 방 찾기</button>
+      </div>
+      
+      <div class="notification-permission">
+        <p class="notification-text">CCHAT은 데스크톱 알림을 사용하여 새로운 메시지를 알려드립니다.</p>
+        <button id="enable-notifications" class="button">데스크톱 알림 활성화</button>
+      </div>
+    </div>
+    
+    <div class="footer">
+      Made by OCGK123 © 2025
+    </div>
+  </div>
+  
+  <!-- 공개 방 목록 화면 -->
+  <div id="public-rooms-screen" class="public-rooms-screen">
+    <div class="public-rooms-header">
+      <h2>공개 방 목록</h2>
+      <button id="back-to-welcome-from-public" class="button">뒤로 가기</button>
+    </div>
+    <div id="public-rooms-content" class="public-rooms-content">
+      <div id="public-rooms-loading" style="text-align: center; padding: 40px;">
+        <div class="spinner"></div>
+        <p style="margin-top: 16px;">공개 방 목록을 불러오는 중...</p>
+      </div>
+      <div id="public-rooms-list" style="display: none;"></div>
+      <div id="no-public-rooms" class="no-rooms-message" style="display: none;">
+        <p>현재 공개된 방이 없습니다.</p>
+        <button id="create-room-from-public" class="button primary" style="margin-top: 16px;">새 방 만들기</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 채팅 화면 -->
+  <div id="chat-container" class="chat-container">
+    <div class="app-container">
+      <div class="sidebar">
+        <div class="header">
+          <span id="current-room-name">방 이름</span>
+          <div class="tooltip">
+            <button id="invite-button" class="button" style="margin: 0; padding: 6px 10px;">초대</button>
+            <span class="tooltiptext">초대 코드 보기</span>
+          </div>
+        </div>
+        <div class="room-list">
+          <div class="header" style="background: transparent;">참여자</div>
+          <div id="participants-list"></div>
+          
+          <div id="join-requests-container" style="margin-top: 16px; display: none;">
+            <div class="header" style="background: transparent;">참가 요청</div>
+            <div id="join-requests-list"></div>
+          </div>
+        </div>
+        <div style="margin-top: auto; padding: 16px;">
+          <button id="leave-room" class="button danger" style="width: 100%;">방 나가기</button>
+        </div>
+      </div>
+      
+      <div class="content">
+        <div class="chat-header">
+          <h2 id="room-header">방 이름</h2>
+          <span id="connected-status" class="user-status">
+            <span class="status-indicator online"></span>
+            연결됨
+          </span>
+        </div>
+        <div id="chat-area" class="chat-area"></div>
+        <div class="input-area">
+          <button id="emoji-button" class="emoji-button">😊</button>
+          <div id="emoji-picker" class="emoji-picker"></div>
+          <input type="text" id="message-input" class="message-input" placeholder="메시지 입력...">
+          <button id="send-button" class="button">보내기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 초대 코드 모달 -->
+  <div id="invite-modal" class="invite-modal">
+    <div class="invite-modal-content">
+      <div class="invite-modal-header">
+        <h3 class="invite-modal-title">초대 코드</h3>
+        <button id="invite-modal-close" class="invite-modal-close">&times;</button>
+      </div>
+      <div id="invite-code-display" class="invite-code-display"></div>
+      <p style="margin-bottom: 16px; text-align: center;">이 코드를 공유하여 다른 사람을 초대하세요.</p>
+      <button id="copy-invite-code" class="button primary" style="width: 100%;">코드 복사</button>
+    </div>
+  </div>
+  
+  <!-- 맥락 메뉴 (우클릭 메뉴) -->
+  <div id="context-menu" class="context-menu"></div>
+  
+  <!-- 확인 대화상자 -->
+  <div id="confirmation-dialog" class="confirmation-dialog">
+    <div class="confirmation-content">
+      <div id="confirmation-message" class="confirmation-message"></div>
+      <div class="confirmation-buttons">
+        <button id="confirmation-cancel" class="button">취소</button>
+        <button id="confirmation-confirm" class="button primary">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 이모지 목록
+    const commonEmojis = [
+      '😊', '😂', '❤️', '👍', '🎉', '✨', '🔥', '👀', '🙌', '👋',
+      '😍', '🤔', '😅', '😎', '😢', '😭', '😡', '🥺', '😴', '🤣',
+      '👏', '💪', '🤝', '🙏', '🤷', '🏃', '💯', '🎊', '🎁', '🏆',
+      '💖', '💙', '💚', '💛', '💜', '🖤', '🤍', '💝', '💕', '💓',
+      '👑', '🌟', '⭐', '💫', '🌈', '🎯', '🎵', '🎧', '📱', '💻'
+    ];
+    
+    // 필요한 요소 가져오기
+    const welcomeScreen = document.getElementById('welcome-screen');
+    const publicRoomsScreen = document.getElementById('public-rooms-screen');
+    const chatContainer = document.getElementById('chat-container');
+    const createRoomConfirmBtn = document.getElementById('create-room-confirm');
+    const joinRoomConfirmBtn = document.getElementById('join-room-confirm');
+    const findPublicRoomsBtn = document.getElementById('find-public-rooms');
+    const backToWelcomeFromPublicBtn = document.getElementById('back-to-welcome-from-public');
+    const createRoomFromPublicBtn = document.getElementById('create-room-from-public');
+    const publicRoomsList = document.getElementById('public-rooms-list');
+    const publicRoomsLoading = document.getElementById('public-rooms-loading');
+    const noPublicRooms = document.getElementById('no-public-rooms');
+    const nicknameCreateInput = document.getElementById('nickname-create');
+    const nicknameJoinInput = document.getElementById('nickname-join');
+    const roomNameInput = document.getElementById('room-name');
+    const roomCodeInput = document.getElementById('room-code');
+    const publicRoomCheckbox = document.getElementById('public-room');
+    const currentRoomNameEl = document.getElementById('current-room-name');
+    const roomHeaderEl = document.getElementById('room-header');
+    const inviteButton = document.getElementById('invite-button');
+    const inviteModal = document.getElementById('invite-modal');
+    const inviteModalClose = document.getElementById('invite-modal-close');
+    const inviteCodeDisplay = document.getElementById('invite-code-display');
+    const copyInviteCodeBtn = document.getElementById('copy-invite-code');
+    const leaveRoomBtn = document.getElementById('leave-room');
+    const participantsList = document.getElementById('participants-list');
+    const joinRequestsList = document.getElementById('join-requests-list');
+    const joinRequestsContainer = document.getElementById('join-requests-container');
+    const connectedStatus = document.getElementById('connected-status');
+    const chatArea = document.getElementById('chat-area');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const enableNotificationsBtn = document.getElementById('enable-notifications');
+    const contextMenu = document.getElementById('context-menu');
+    const confirmationDialog = document.getElementById('confirmation-dialog');
+    const confirmationMessage = document.getElementById('confirmation-message');
+    const confirmationCancel = document.getElementById('confirmation-cancel');
+    const confirmationConfirm = document.getElementById('confirmation-confirm');
+    const emojiButton = document.getElementById('emoji-button');
+    const emojiPicker = document.getElementById('emoji-picker');
+    
+    // 탭 관련 요소
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    // 상태 관리
+    let peer = null;
+    let connections = {};
+    let currentRoomId = null;
+    let currentRoomName = '';
+    let nickname = '';
+    let participants = {};
+    let notificationsEnabled = false;
+    let isPublicRoom = true;
+    let joinRequests = {};
+    let confirmationCallback = null;
+    let publicRooms = [];
+    let publicRoomPrefix = 'public-';
+    
+    // 초기화 함수
+    function init() {
+      // 이모지 픽커 초기화
+      initEmojiPicker();
+      
+      // 탭 이벤트 리스너 설정
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabId = tab.getAttribute('data-tab');
+          
+          // 활성화된 탭 변경
+          tabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          
+          // 활성화된 탭 컨텐츠 변경
+          tabContents.forEach(content => {
+            if (content.getAttribute('data-tab') === tabId) {
+              content.classList.add('active');
+            } else {
+              content.classList.remove('active');
+            }
+          });
+        });
+      });
+      
+      // 알림 권한 확인
+      checkNotificationPermission();
+      
+      // 페이지 로드시 알림 권한 필수 처리
+      if (!notificationsEnabled) {
+        enableNotificationsBtn.classList.add('primary');
+        enableNotificationsBtn.style.animation = 'pulse 1s infinite';
+      }
+      
+      // 이벤트 리스너 등록
+      setupEventListeners();
+      
+      // 컨텍스트 메뉴 처리
+      document.addEventListener('click', () => {
+        contextMenu.classList.remove('active');
+      });
+    }
+    
+    // 이벤트 리스너 설정
+    function setupEventListeners() {
+      // 방 만들기 버튼
+      createRoomConfirmBtn.addEventListener('click', () => {
+        if (!notificationsEnabled) {
+          showConfirmation('알림 권한이 필요합니다. 계속하시겠습니까?', () => {
+            requestNotificationPermission(() => {
+              handleCreateRoom();
+            });
+          });
+          return;
+        }
+        
+        handleCreateRoom();
+      });
+      
+      // 방 참여 버튼
+      joinRoomConfirmBtn.addEventListener('click', () => {
+        if (!notificationsEnabled) {
+          showConfirmation('알림 권한이 필요합니다. 계속하시겠습니까?', () => {
+            requestNotificationPermission(() => {
+              handleJoinRoom();
+            });
+          });
+          return;
+        }
+        
+        handleJoinRoom();
+      });
+      
+      // 공개 방 찾기 버튼
+      findPublicRoomsBtn.addEventListener('click', () => {
+        if (!notificationsEnabled) {
+          showConfirmation('알림 권한이 필요합니다. 계속하시겠습니까?', () => {
+            requestNotificationPermission(() => {
+              showPublicRoomsScreen();
+            });
+          });
+          return;
+        }
+        
+        showPublicRoomsScreen();
+      });
+      
+      // 공개 방 화면에서 뒤로가기 버튼
+      backToWelcomeFromPublicBtn.addEventListener('click', () => {
+        showScreen('welcome-screen');
+      });
+      
+      // 공개 방 없을 때 생성 버튼
+      createRoomFromPublicBtn.addEventListener('click', () => {
+        showScreen('welcome-screen');
+        // 새 방 만들기 탭으로 이동
+        tabs[0].click();
+      });
+      
+      // 메시지 보내기 버튼
+      sendButton.addEventListener('click', sendMessage);
+      messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+      
+      // 초대 버튼
+      inviteButton.addEventListener('click', () => {
+        showInviteModal();
+      });
+      
+      // 초대 모달 닫기
+      inviteModalClose.addEventListener('click', () => {
+        inviteModal.classList.remove('active');
+      });
+      
+      // 초대 코드 복사
+      copyInviteCodeBtn.addEventListener('click', () => {
+        const code = inviteCodeDisplay.textContent;
+        navigator.clipboard.writeText(code)
+          .then(() => {
+            copyInviteCodeBtn.textContent = '복사됨!';
+            copyInviteCodeBtn.classList.add('success');
+            
+            setTimeout(() => {
+              copyInviteCodeBtn.textContent = '코드 복사';
+              copyInviteCodeBtn.classList.remove('success');
+            }, 2000);
+          })
+          .catch(err => {
+            console.error('코드 복사 실패:', err);
+            copyInviteCodeBtn.textContent = '복사 실패';
+            copyInviteCodeBtn.classList.add('danger');
+            
+            setTimeout(() => {
+              copyInviteCodeBtn.textContent = '코드 복사';
+              copyInviteCodeBtn.classList.remove('danger');
+            }, 2000);
+          });
+      });
+      
+      // 방 나가기 버튼
+      leaveRoomBtn.addEventListener('click', () => {
+        showConfirmation('정말 방을 나가시겠습니까?', leaveRoom);
+      });
+      
+      // 알림 활성화 버튼
+      enableNotificationsBtn.addEventListener('click', () => {
+        requestNotificationPermission();
+      });
+      
+      // 확인 대화상자 버튼들
+      confirmationCancel.addEventListener('click', () => {
+        confirmationDialog.classList.remove('active');
+        confirmationCallback = null;
+      });
+      
+      confirmationConfirm.addEventListener('click', () => {
+        confirmationDialog.classList.remove('active');
+        if (confirmationCallback) {
+          confirmationCallback();
+          confirmationCallback = null;
+        }
+      });
+      
+      // 이모지 버튼
+      emojiButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        emojiPicker.classList.toggle('active');
+      });
+      
+      // 이모지 픽커 외부 클릭시 닫기
+      document.addEventListener('click', (e) => {
+        if (!emojiPicker.contains(e.target) && e.target !== emojiButton) {
+          emojiPicker.classList.remove('active');
+        }
+      });
+    }
+    
+    // 알림 권한 확인
+    function checkNotificationPermission() {
+      if (!('Notification' in window)) {
+        alert('이 브라우저는 알림을 지원하지 않습니다.');
+        enableNotificationsBtn.disabled = true;
+        enableNotificationsBtn.textContent = '알림 지원되지 않음';
+        return;
+      }
+      
+      if (Notification.permission === 'granted') {
+        notificationsEnabled = true;
+        enableNotificationsBtn.textContent = '알림 활성화됨';
+        enableNotificationsBtn.disabled = true;
+      }
+    }
+    
+    // 알림 권한 요청
+    function requestNotificationPermission(callback) {
+      if (!('Notification' in window)) {
+        alert('이 브라우저는 알림을 지원하지 않습니다.');
+        return;
+      }
+      
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          notificationsEnabled = true;
+          enableNotificationsBtn.textContent = '알림 활성화됨';
+          enableNotificationsBtn.disabled = true;
+          enableNotificationsBtn.style.animation = 'none';
+          
+          // 테스트 알림
+          new Notification('CCHAT - 알림 활성화됨', {
+            body: '이제 새 메시지가 오면 알림을 받을 수 있습니다.',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>'
+          });
+          
+          if (callback) callback();
+        } else {
+          alert('채팅을 시작하려면 알림 권한이 필요합니다.');
+        }
+      });
+    }
+    
+    // 방 만들기 처리
+    function handleCreateRoom() {
+      const userNickname = nicknameCreateInput.value.trim();
+      const roomName = roomNameInput.value.trim();
+      isPublicRoom = publicRoomCheckbox.checked;
+      
+      if (!userNickname || !roomName) {
+        alert('닉네임과 방 이름을 모두 입력해주세요.');
+        return;
+      }
+      
+      createRoom(userNickname, roomName);
+    }
+    
+    // 방 참여 처리
+    function handleJoinRoom() {
+      const userNickname = nicknameJoinInput.value.trim();
+      let roomCode = roomCodeInput.value.trim();
+      
+      if (!userNickname || !roomCode) {
+        alert('닉네임과 초대 코드를 모두 입력해주세요.');
+        return;
+      }
+      
+      // 대문자로 변환
+      roomCode = roomCode.toUpperCase();
+      
+      joinRoom(userNickname, roomCode, true);
+    }
+    
+    // 화면 전환 함수
+    function showScreen(screenId) {
+      [welcomeScreen, publicRoomsScreen, chatContainer].forEach(screen => {
+        screen.classList.remove('active-screen');
+      });
+      document.getElementById(screenId).classList.add('active-screen');
+    }
+    
+    // 공개 방 화면 표시
+    function showPublicRoomsScreen() {
+      showScreen('public-rooms-screen');
+      fetchPublicRooms();
+    }
+    
+    // 공개 방 목록 가져오기
+    function fetchPublicRooms() {
+      publicRoomsLoading.style.display = 'block';
+      publicRoomsList.style.display = 'none';
+      noPublicRooms.style.display = 'none';
+      
+      // 실제 활성화된 공개 방 목록 가져오기
+      findActivePublicRooms().then(rooms => {
+        publicRooms = rooms;
+        publicRoomsLoading.style.display = 'none';
+        
+        if (rooms.length === 0) {
+          noPublicRooms.style.display = 'block';
+        } else {
+          renderPublicRooms(rooms);
+          publicRoomsList.style.display = 'block';
+        }
+      }).catch(err => {
+        console.error('공개 방 목록 가져오기 실패:', err);
+        publicRoomsLoading.style.display = 'none';
+        noPublicRooms.style.display = 'block';
+      });
+    }
+    
+    // 활성화된 공개 방 찾기
+    async function findActivePublicRooms() {
+      return new Promise((resolve, reject) => {
+        const tempPeer = new Peer();
+        const rooms = [];
+        const checkedPeers = new Set();
+        
+        tempPeer.on('open', () => {
+          // 연결 시도 횟수 추적
+          let connectionAttempts = 0;
+          const maxAttempts = 20;
+          
+          // 1분 후 강제 종료 타이머
+          const timeoutId = setTimeout(() => {
+            tempPeer.destroy();
+            resolve(rooms);
+          }, 10000);
+          
+          // 활성화된 방을 찾기 위한 함수
+          function tryConnectToRoom() {
+            if (connectionAttempts >= maxAttempts) {
+              clearTimeout(timeoutId);
+              tempPeer.destroy();
+              return resolve(rooms);
+            }
+            
+            // 랜덤 코드로 공개 방 ID 생성 (문자 또는 숫자)
+            let potentialId;
+            if (Math.random() > 0.5) {
+              // 3자리 알파벳 코드 시도
+              potentialId = publicRoomPrefix + generateRandomCode(3);
+            } else {
+              // 4자리 숫자 코드 시도
+              potentialId = publicRoomPrefix + generateRandomNumberCode(4);
+            }
+            
+            if (checkedPeers.has(potentialId)) {
+              connectionAttempts++;
+              return tryConnectToRoom();
+            }
+            
+            checkedPeers.add(potentialId);
+            connectionAttempts++;
+            
+            const conn = tempPeer.connect(potentialId);
+            
+            conn.on('open', () => {
+              conn.send({
+                type: 'room_info_request',
+                source: tempPeer.id
+              });
+            });
+            
+            conn.on('data', data => {
+              if (data.type === 'room_info_response') {
+                rooms.push({
+                  id: potentialId,
+                  name: data.roomName,
+                  participants: data.participantsCount
+                });
+              }
+              
+              // 다음 연결 시도
+              tryConnectToRoom();
+            });
+            
+            conn.on('error', () => {
+              // 다음 연결 시도
+              tryConnectToRoom();
+            });
+          }
+          
+          // 첫 연결 시도 시작
+          tryConnectToRoom();
+        });
+        
+        tempPeer.on('error', (err) => {
+          console.error('공개 방 검색 오류:', err);
+          tempPeer.destroy();
+          resolve([]); // 오류가 발생해도 빈 배열 반환
+        });
+      });
+    }
+    
+    // 공개 방 목록 렌더링
+    function renderPublicRooms(rooms) {
+      publicRoomsList.innerHTML = '';
+      
+      rooms.forEach(room => {
+        const roomCard = document.createElement('div');
+        roomCard.className = 'public-room-card';
+        
+        const roomIcon = document.createElement('div');
+        roomIcon.className = 'public-room-icon';
+        roomIcon.textContent = room.name.charAt(0).toUpperCase();
+        
+        const roomInfo = document.createElement('div');
+        roomInfo.className = 'public-room-info';
+        
+        const roomName = document.createElement('div');
+        roomName.className = 'public-room-name';
+        roomName.textContent = room.name;
+        
+        const roomParticipants = document.createElement('div');
+        roomParticipants.className = 'public-room-participants';
+        roomParticipants.textContent = `참여자 ${room.participants} 명`;
+        
+        const joinButton = document.createElement('button');
+        joinButton.className = 'public-room-join';
+        joinButton.textContent = '참여하기';
+        joinButton.addEventListener('click', () => {
+          // 닉네임 입력 확인
+          let userNickname = nicknameCreateInput.value.trim() || nicknameJoinInput.value.trim();
+          
+          if (!userNickname) {
+            userNickname = prompt('닉네임을 입력해주세요:');
+            if (!userNickname) return;
+          }
+          
+          joinRoom(userNickname, room.id.slice(-3), false);
+        });
+        
+        roomInfo.appendChild(roomName);
+        roomInfo.appendChild(roomParticipants);
+        
+        roomCard.appendChild(roomIcon);
+        roomCard.appendChild(roomInfo);
+        roomCard.appendChild(joinButton);
+        
+        publicRoomsList.appendChild(roomCard);
+      });
+    }
+    
+    // 알림 표시
+    function showNotification(title, message) {
+      if (notificationsEnabled && document.visibilityState !== 'visible') {
+        new Notification(title, {
+          body: message,
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>'
+        });
+      }
+    }
+    
+    // 이모지 픽커 초기화
+    function initEmojiPicker() {
+      // 이모지 목록 추가
+      commonEmojis.forEach(emoji => {
+        const emojiItem = document.createElement('div');
+        emojiItem.className = 'emoji-item';
+        emojiItem.textContent = emoji;
+        emojiItem.addEventListener('click', () => {
+          messageInput.value += emoji;
+          messageInput.focus();
+          emojiPicker.classList.remove('active');
+        });
+        
+        emojiPicker.appendChild(emojiItem);
+      });
+    }
+    
+    // 초대 모달 표시
+    function showInviteModal() {
+      inviteCodeDisplay.textContent = currentRoomId.slice(-3);
+      inviteModal.classList.add('active');
+    }
+    
+    // 확인 대화상자 표시
+    function showConfirmation(message, callback) {
+      confirmationMessage.textContent = message;
+      confirmationCallback = callback;
+      confirmationDialog.classList.add('active');
+    }
+    
+    // 메시지 보내기 함수
+    function sendMessage() {
+      const message = messageInput.value.trim();
+      if (!message) return;
+      
+      // 메시지 객체 생성
+      const messageObj = {
+        type: 'message',
+        sender: nickname,
+        content: message,
+        timestamp: Date.now(),
+        role: getMyRole()
+      };
+      
+      // 모든 연결에 메시지 전송
+      Object.values(connections).forEach(conn => {
+        conn.send(messageObj);
+      });
+      
+      // 내 화면에 메시지 표시
+      displayMessage(messageObj);
+      
+      // 입력창 비우기
+      messageInput.value = '';
+    }
+    
+    // 현재 자신의 역할 가져오기
+    function getMyRole() {
+      if (!peer) return 'user';
+      
+      const myParticipant = participants[peer.id];
+      if (!myParticipant) return 'user';
+      
+      if (myParticipant.isHost) return 'host';
+      if (myParticipant.isManager) return 'manager';
+      return 'user';
+    }
+    
+    // 메시지 표시 함수
+    function displayMessage(message) {
+      const messageEl = document.createElement('div');
+      messageEl.className = 'message';
+      
+      const avatarEl = document.createElement('div');
+      avatarEl.className = 'message-avatar';
+      
+      // 역할에 따른 아바타 스타일 변경
+      if (message.role === 'host') {
+        avatarEl.classList.add('admin');
+      } else if (message.role === 'manager') {
+        avatarEl.classList.add('manager');
+      }
+      
+      avatarEl.textContent = message.sender.charAt(0).toUpperCase();
+      
+      const contentEl = document.createElement('div');
+      contentEl.className = 'message-content';
+      
+      const senderEl = document.createElement('div');
+      senderEl.className = 'message-sender';
+      senderEl.textContent = message.sender;
+      
+      // 역할 배지 추가
+      if (message.role === 'host') {
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'sender-badge host';
+        badgeEl.textContent = '방장';
+        senderEl.appendChild(badgeEl);
+      } else if (message.role === 'manager') {
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'sender-badge manager';
+        badgeEl.textContent = '매니저';
+        senderEl.appendChild(badgeEl);
+      }
+      
+      const textEl = document.createElement('div');
+      textEl.className = 'message-text';
+      textEl.innerHTML = linkify(message.content); // 링크 및 이모지 처리
+      
+      contentEl.appendChild(senderEl);
+      contentEl.appendChild(textEl);
+      
+      messageEl.appendChild(avatarEl);
+      messageEl.appendChild(contentEl);
+      
+      chatArea.appendChild(messageEl);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+    
+    // 텍스트에서 URL을 링크로 변환
+    function linkify(text) {
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      return text.replace(urlRegex, url => `<a href="${url}" target="_blank" style="color: #81a1c1;">${url}</a>`);
+    }
+    
+    // 시스템 메시지 표시 함수
+    function displaySystemMessage(message) {
+      const messageEl = document.createElement('div');
+      messageEl.className = 'message';
+      messageEl.style.justifyContent = 'center';
+      
+      const textEl = document.createElement('div');
+      textEl.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+      textEl.style.padding = '10px 16px';
+      textEl.style.borderRadius = '6px';
+      textEl.style.fontSize = '14px';
+      textEl.style.color = 'rgba(255, 255, 255, 0.7)';
+      textEl.textContent = message;
+      
+      messageEl.appendChild(textEl);
+      chatArea.appendChild(messageEl);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+    
+    // 참여 요청 표시 함수
+    function displayJoinRequest(request) {
+      const requestEl = document.createElement('div');
+      requestEl.className = 'join-request';
+      requestEl.id = `join-request-${request.peerId}`;
+      
+      const requestInfoEl = document.createElement('div');
+      requestInfoEl.className = 'join-request-info';
+      
+      const avatarEl = document.createElement('div');
+      avatarEl.className = 'join-request-avatar';
+      avatarEl.textContent = request.nickname.charAt(0).toUpperCase();
+      
+      const nameEl = document.createElement('div');
+      nameEl.className = 'join-request-name';
+      nameEl.textContent = request.nickname;
+      
+      const buttonsEl = document.createElement('div');
+      buttonsEl.className = 'join-request-buttons';
+      
+      const acceptBtn = document.createElement('button');
+      acceptBtn.className = 'join-request-button accept';
+      acceptBtn.textContent = '수락';
+      acceptBtn.addEventListener('click', () => {
+        acceptJoinRequest(request.peerId);
+      });
+      
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'join-request-button reject';
+      rejectBtn.textContent = '거절';
+      rejectBtn.addEventListener('click', () => {
+        rejectJoinRequest(request.peerId);
+      });
+      
+      requestInfoEl.appendChild(avatarEl);
+      requestInfoEl.appendChild(nameEl);
+      
+      buttonsEl.appendChild(acceptBtn);
+      buttonsEl.appendChild(rejectBtn);
+      
+      requestEl.appendChild(requestInfoEl);
+      requestEl.appendChild(buttonsEl);
+      
+      joinRequestsList.appendChild(requestEl);
+      joinRequestsContainer.style.display = 'block';
+      
+      // 알림 표시
+      showNotification('CCHAT - 새 참여 요청', `${request.nickname}님이 방에 참여하려고 합니다.`);
+    }
+    
+    // 방 만들기 함수
+    function createRoom(userNickname, roomName) {
+      nickname = userNickname;
+      currentRoomName = roomName;
+      
+      // 코드 타입 확인 (문자 또는 숫자)
+      const useNumberCode = document.getElementById('code-type-numbers').checked;
+      
+      // 코드 생성
+      let shortCode;
+      if (useNumberCode) {
+        // 4자리 숫자 코드
+        shortCode = generateRandomNumberCode(4);
+      } else {
+        // 3자리 문자 코드
+        shortCode = generateRandomCode(3);
+      }
+      
+      currentRoomId = isPublicRoom ? publicRoomPrefix + shortCode : shortCode;
+      
+      // PeerJS 초기화
+      initializePeer(currentRoomId);
+      
+      // 화면 전환
+      showScreen('chat-container');
+    }
+    
+    // 방 참여하기 함수
+    function joinRoom(userNickname, roomCode, isDirectInvite) {
+      nickname = userNickname;
+      
+      // 코드 형식 감지 처리
+      if (roomCode.length === 3 && isNaN(roomCode)) {
+        // 3자리 문자 코드
+        // 공개방인지 확인
+        if (publicRooms.some(room => room.id.slice(-3) === roomCode)) {
+          // 공개방인 경우 접두사 추가
+          currentRoomId = publicRoomPrefix + roomCode;
+        } else {
+          // 일반 초대 코드인 경우 그대로 사용
+          currentRoomId = roomCode;
+        }
+      } else if (roomCode.length === 4 && !isNaN(roomCode)) {
+        // 4자리 숫자 코드
+        // 공개방인지 확인
+        if (publicRooms.some(room => room.id.slice(-4) === roomCode)) {
+          // 공개방인 경우 접두사 추가
+          currentRoomId = publicRoomPrefix + roomCode;
+        } else {
+          // 일반 초대 코드인 경우 그대로 사용
+          currentRoomId = roomCode;
+        }
+      } else {
+        // 전체 길이 코드는 그대로 사용
+        currentRoomId = roomCode;
+      }
+      
+      // PeerJS 초기화 (랜덤 ID로)
+      initializePeer(null, isDirectInvite);
+      
+      // 화면 전환
+      showScreen('chat-container');
+      
+      // 연결 상태 업데이트
+      updateConnectionStatus('connecting');
+    }
+    
+    // 방 나가기 함수
+    function leaveRoom() {
+      // 모든 연결 종료
+      Object.values(connections).forEach(conn => {
+        conn.close();
+      });
+      
+      // PeerJS 연결 종료
+      if (peer) {
+        peer.destroy();
+      }
+      
+      // 상태 초기화
+      connections = {};
+      currentRoomId = null;
+      currentRoomName = '';
+      participants = {};
+      joinRequests = {};
+      
+      // 화면 전환
+      showScreen('welcome-screen');
+    }
+    
+    // 연결 상태 업데이트
+    function updateConnectionStatus(status) {
+      const statusIndicator = connectedStatus.querySelector('.status-indicator');
+      
+      switch (status) {
+        case 'connecting':
+          statusIndicator.className = 'status-indicator connecting';
+          connectedStatus.querySelector('span:not(.status-indicator)').textContent = '연결 중...';
+          break;
+          
+        case 'connected':
+          statusIndicator.className = 'status-indicator online';
+          connectedStatus.querySelector('span:not(.status-indicator)').textContent = '연결됨';
+          break;
+      }
+    }
+    
+    // PeerJS 초기화 함수
+    function initializePeer(customId = null, isDirectInvite = true) {
+      const peerId = customId || generatePeerId();
+      
+      peer = new Peer(peerId);
+      
+      peer.on('open', id => {
+        console.log('내 피어 ID:', id);
+        
+        // 방장이 아닌 경우 방장에게 연결
+        if (!customId) {
+          connectToHost(currentRoomId, isDirectInvite);
+        } else {
+          // 방장인 경우 참가자 목록에 자신 추가
+          participants[id] = {
+            id: id,
+            nickname: nickname,
+            isHost: true,
+            isManager: false
+          };
+          
+          // 방 정보 업데이트
+          updateRoomInfo();
+          updateParticipantsList();
+          
+          // 시스템 메시지 표시
+          displaySystemMessage(`'${currentRoomName}' 방이 생성되었습니다.`);
+        }
+      });
+      
+      peer.on('connection', conn => {
+        handleConnection(conn);
+      });
+      
+      peer.on('error', err => {
+        console.error('피어 에러:', err);
+        if (err.type === 'peer-unavailable') {
+          alert('방을 찾을 수 없습니다. 초대 코드를 확인해주세요.');
+          showScreen('welcome-screen');
+        }
+      });
+    }
+    
+    // 호스트에 연결하는 함수
+    function connectToHost(hostId, isDirectInvite) {
+      const conn = peer.connect(hostId);
+      
+      conn.on('open', () => {
+        console.log('호스트에 연결됨');
+        
+        // 연결 상태 업데이트
+        updateConnectionStatus('connected');
+        
+        // 초대 코드로 직접 참여하는 경우와 공개 방 목록에서 참여하는 경우 구분
+        if (isDirectInvite) {
+          // 직접 초대인 경우 바로 참여
+          conn.send({
+            type: 'join',
+            peerId: peer.id,
+            nickname: nickname,
+            isDirectInvite: true
+          });
+        } else {
+          // 공개 방 목록에서 참여하는 경우 승인 요청
+          conn.send({
+            type: 'join_request',
+            peerId: peer.id,
+            nickname: nickname
+          });
+          
+          // 메시지 표시
+          displaySystemMessage('방장의 승인을 기다리는 중입니다...');
+        }
+        
+        handleConnection(conn);
+      });
+      
+      conn.on('error', () => {
+        alert('연결에 실패했습니다. 초대 코드를 확인해주세요.');
+        showScreen('welcome-screen');
+      });
+    }
+    
+    // 연결 처리 함수
+    function handleConnection(conn) {
+      conn.on('data', data => {
+        handleData(conn, data);
+      });
+      
+      conn.on('close', () => {
+        // 연결이 끊긴 참가자 제거
+        if (connections[conn.peer]) {
+          delete connections[conn.peer];
+        }
+        
+        if (participants[conn.peer]) {
+          const leavingNickname = participants[conn.peer].nickname;
+          
+          // 방장이 나간 경우 새 방장 선정
+          if (participants[conn.peer].isHost && Object.keys(participants).length > 1) {
+            assignNewHost();
+          }
+          
+          delete participants[conn.peer];
+          updateParticipantsList();
+          
+          // 시스템 메시지 표시
+          displaySystemMessage(`${leavingNickname}님이 방을 나갔습니다.`);
+        }
+      });
+      
+      connections[conn.peer] = conn;
+    }
+    
+    // 데이터 처리 함수
+    function handleData(conn, data) {
+      console.log('받은 데이터:', data);
+      
+      switch (data.type) {
+        case 'join':
+          // 직접 초대로 새 참가자 입장
+          participants[data.peerId] = {
+            id: data.peerId,
+            nickname: data.nickname,
+            isHost: false,
+            isManager: false
+          };
+          
+          // 방 정보 전송
+          conn.send({
+            type: 'room_info',
+            roomName: currentRoomName,
+            participants: participants
+          });
+          
+          // 다른 참가자들에게 새 참가자 정보 전송
+          Object.values(connections).forEach(c => {
+            if (c.peer !== conn.peer) {
+              c.send({
+                type: 'new_participant',
+                participant: participants[data.peerId]
+              });
+            }
+          });
+          
+          updateParticipantsList();
+          
+          // 시스템 메시지 표시
+          displaySystemMessage(`${data.nickname}님이 방에 참여했습니다.`);
+          break;
+          
+        case 'join_request':
+          // 참여 요청 저장
+          joinRequests[data.peerId] = {
+            peerId: data.peerId,
+            nickname: data.nickname,
+            conn: conn
+          };
+          
+          // 요청 표시 (방장 또는 매니저만)
+          if (participants[peer.id] && (participants[peer.id].isHost || participants[peer.id].isManager)) {
+            displayJoinRequest(joinRequests[data.peerId]);
+          }
+          break;
+          
+        case 'join_request_approved':
+          // 참여 요청이 승인됨
+          currentRoomName = data.roomName;
+          participants = data.participants;
+          
+          // 자신을 참가자 목록에 추가
+          participants[peer.id] = {
+            id: peer.id,
+            nickname: nickname,
+            isHost: false,
+            isManager: false
+          };
+          
+          updateRoomInfo();
+          updateParticipantsList();
+          
+          // 시스템 메시지 표시
+          displaySystemMessage('방장이 참여 요청을 승인했습니다.');
+          break;
+          
+        case 'join_request_rejected':
+          // 참여 요청이 거절됨
+          displaySystemMessage('방장이 참여 요청을 거절했습니다.');
+          setTimeout(() => {
+            leaveRoom();
+          }, 2000);
+          break;
+          
+        case 'room_info':
+          // 방 정보 업데이트
+          currentRoomName = data.roomName;
+          participants = data.participants;
+          
+          // 자신을 참가자 목록에 추가
+          participants[peer.id] = {
+            id: peer.id,
+            nickname: nickname,
+            isHost: false,
+            isManager: false
+          };
+          
+          updateRoomInfo();
+          updateParticipantsList();
+          break;
+          
+        case 'new_participant':
+          // 새 참가자 정보 업데이트
+          participants[data.participant.id] = data.participant;
+          updateParticipantsList();
+          
+          // 시스템 메시지 표시
+          displaySystemMessage(`${data.participant.nickname}님이 방에 참여했습니다.`);
+          break;
+          
+        case 'message':
+          // 메시지 표시
+          displayMessage(data);
+          
+          // 알림 표시
+          showNotification(`CCHAT - ${data.sender}님의 메시지`, data.content);
+          break;
+          
+        case 'room_info_request':
+          // 공개 방 정보 요청에 응답
+          if (isPublicRoom && participants[peer.id].isHost) {
+            conn.send({
+              type: 'room_info_response',
+              roomName: currentRoomName,
+              participantsCount: Object.keys(participants).length
+            });
+          }
+          break;
+          
+        case 'promote_to_manager':
+          // 매니저로 승격
+          if (data.targetId === peer.id) {
+            participants[peer.id].isManager = true;
+            updateParticipantsList();
+            
+            // 시스템 메시지 표시
+            displaySystemMessage('방장이 당신을 매니저로 승격시켰습니다.');
+          } else if (participants[data.targetId]) {
+            participants[data.targetId].isManager = true;
+            updateParticipantsList();
+          }
+          break;
+          
+        case 'demote_from_manager':
+          // 매니저 권한 해제
+          if (data.targetId === peer.id) {
+            participants[peer.id].isManager = false;
+            updateParticipantsList();
+            
+            // 시스템 메시지 표시
+            displaySystemMessage('방장이 당신의 매니저 권한을 해제했습니다.');
+          } else if (participants[data.targetId]) {
+            participants[data.targetId].isManager = false;
+            updateParticipantsList();
+          }
+          break;
+          
+        case 'host_changed':
+          // 방장 변경
+          Object.keys(participants).forEach(id => {
+            participants[id].isHost = (id === data.newHostId);
+          });
+          
+          updateParticipantsList();
+          
+          // 방장이 된 경우
+          if (data.newHostId === peer.id) {
+            displaySystemMessage('당신이 새로운 방장이 되었습니다.');
+          } else {
+            const newHostName = participants[data.newHostId]?.nickname || '알 수 없음';
+            displaySystemMessage(`${newHostName}님이 새로운 방장이 되었습니다.`);
+          }
+          break;
+      }
+    }
+    
+    // 참여 요청 수락
+    function acceptJoinRequest(peerId) {
+      if (!joinRequests[peerId]) return;
+      
+      const request = joinRequests[peerId];
+      
+      // 참가자 목록에 추가
+      participants[peerId] = {
+        id: peerId,
+        nickname: request.nickname,
+        isHost: false,
+        isManager: false
+      };
+      
+      // 참여 승인 메시지 전송
+      request.conn.send({
+        type: 'join_request_approved',
+        roomName: currentRoomName,
+        participants: participants
+      });
+      
+      // 다른 참가자들에게 새 참가자 정보 전송
+      Object.values(connections).forEach(conn => {
+        if (conn.peer !== peerId) {
+          conn.send({
+            type: 'new_participant',
+            participant: participants[peerId]
+          });
+        }
+      });
+      
+      // 요청 목록에서 제거
+      removeJoinRequest(peerId);
+      
+      // 참가자 목록 업데이트
+      updateParticipantsList();
+      
+      // 시스템 메시지 표시
+      displaySystemMessage(`${request.nickname}님의 참여 요청을 수락했습니다.`);
+    }
+    
+    // 참여 요청 거절
+    function rejectJoinRequest(peerId) {
+      if (!joinRequests[peerId]) return;
+      
+      const request = joinRequests[peerId];
+      
+      // 거절 메시지 전송
+      request.conn.send({
+        type: 'join_request_rejected'
+      });
+      
+      // 요청 목록에서 제거
+      removeJoinRequest(peerId);
+      
+      // 시스템 메시지 표시
+      displaySystemMessage(`${request.nickname}님의 참여 요청을 거절했습니다.`);
+    }
+    
+    // 참여 요청 제거
+    function removeJoinRequest(peerId) {
+      if (!joinRequests[peerId]) return;
+      
+      // DOM에서 요청 제거
+      const requestEl = document.getElementById(`join-request-${peerId}`);
+      if (requestEl) {
+        requestEl.remove();
+      }
+      
+      // 요청 목록에서 제거
+      delete joinRequests[peerId];
+      
+      // 요청이 없는 경우 컨테이너 숨기기
+      if (Object.keys(joinRequests).length === 0) {
+        joinRequestsContainer.style.display = 'none';
+      }
+    }
+    
+    // 매니저로 승격
+    function promoteToManager(peerId) {
+      if (!participants[peerId] || participants[peerId].isHost || participants[peerId].isManager) return;
+      
+      // 권한 변경
+      participants[peerId].isManager = true;
+      
+      // 모든 참가자에게 알림
+      Object.values(connections).forEach(conn => {
+        conn.send({
+          type: 'promote_to_manager',
+          targetId: peerId
+        });
+      });
+      
+      // 참가자 목록 업데이트
+      updateParticipantsList();
+      
+      // 시스템 메시지 표시
+      const targetName = participants[peerId].nickname;
+      displaySystemMessage(`${targetName}님을 매니저로 승격시켰습니다.`);
+    }
+    
+    // 매니저 권한 해제
+    function demoteFromManager(peerId) {
+      if (!participants[peerId] || participants[peerId].isHost || !participants[peerId].isManager) return;
+      
+      // 권한 변경
+      participants[peerId].isManager = false;
+      
+      // 모든 참가자에게 알림
+      Object.values(connections).forEach(conn => {
+        conn.send({
+          type: 'demote_from_manager',
+          targetId: peerId
+        });
+      });
+      
+      // 참가자 목록 업데이트
+      updateParticipantsList();
+      
+      // 시스템 메시지 표시
+      const targetName = participants[peerId].nickname;
+      displaySystemMessage(`${targetName}님의 매니저 권한을 해제했습니다.`);
+    }
+    
+    // 방장 위임
+    function assignNewHost(targetId = null) {
+      let newHostId;
+      
+      if (targetId && participants[targetId]) {
+        // 지정된 참가자가 있는 경우
+        newHostId = targetId;
+      } else {
+        // 자동 선택: 매니저 우선, 없으면 아무나
+        const managers = Object.values(participants).filter(p => p.isManager && !p.isHost);
+        if (managers.length > 0) {
+          newHostId = managers[0].id;
+        } else {
+          const nonHosts = Object.values(participants).filter(p => !p.isHost);
+          if (nonHosts.length > 0) {
+            newHostId = nonHosts[0].id;
+          } else {
+            return; // 방장만 있는 경우
+          }
+        }
+      }
+      
+      // 방장 권한 변경
+      Object.keys(participants).forEach(id => {
+        participants[id].isHost = (id === newHostId);
+      });
+      
+      // 모든 참가자에게 알림
+      Object.values(connections).forEach(conn => {
+        conn.send({
+          type: 'host_changed',
+          newHostId: newHostId
+        });
+      });
+      
+      // 참가자 목록 업데이트
+      updateParticipantsList();
+      
+      // 시스템 메시지 표시
+      const newHostName = participants[newHostId].nickname;
+      displaySystemMessage(`${newHostName}님이 새로운 방장이 되었습니다.`);
+    }
+    
+    // 참가자 강제 퇴장
+    function kickParticipant(peerId) {
+      if (!participants[peerId]) return;
+      
+      const targetConn = connections[peerId];
+      if (targetConn) {
+        targetConn.close();
+      }
+      
+      const targetName = participants[peerId].nickname;
+      delete participants[peerId];
+      delete connections[peerId];
+      
+      // 모든 참가자에게 알림
+      Object.values(connections).forEach(conn => {
+        conn.send({
+          type: 'message',
+          sender: 'System',
+          content: `${targetName}님이 강제 퇴장되었습니다.`,
+          timestamp: Date.now(),
+          role: 'system'
+        });
+      });
+      
+      // 참가자 목록 업데이트
+      updateParticipantsList();
+      
+      // 시스템 메시지 표시
+      displaySystemMessage(`${targetName}님을 강제 퇴장시켰습니다.`);
+    }
+    
+    // 방 정보 업데이트 함수
+    function updateRoomInfo() {
+      currentRoomNameEl.textContent = currentRoomName;
+      roomHeaderEl.textContent = currentRoomName;
+      
+      // 방 코드 길이에 따라 다르게 표시 (3자리 문자 또는 4자리 숫자)
+      const codeLength = isNaN(currentRoomId.slice(-4)) ? 3 : 4;
+      inviteCodeDisplay.textContent = currentRoomId.slice(-codeLength);
+    }
+    
+    // 참가자 목록 업데이트 함수
+    function updateParticipantsList() {
+      participantsList.innerHTML = '';
+      
+      // 방장 먼저, 매니저 다음, 일반 참가자 순으로 정렬
+      const sortedParticipants = Object.values(participants).sort((a, b) => {
+        if (a.isHost) return -1;
+        if (b.isHost) return 1;
+        if (a.isManager) return -1;
+        if (b.isManager) return 1;
+        return 0;
+      });
+      
+      sortedParticipants.forEach(participant => {
+        const participantEl = document.createElement('div');
+        participantEl.className = 'room-item';
+        participantEl.dataset.peerId = participant.id;
+        
+        const avatarEl = document.createElement('div');
+        avatarEl.className = 'room-item-avatar';
+        if (participant.isHost) {
+          avatarEl.style.backgroundColor = 'var(--warning)';
+        } else if (participant.isManager) {
+          avatarEl.style.backgroundColor = 'var(--success)';
+        }
+        avatarEl.textContent = participant.nickname.charAt(0).toUpperCase();
+        
+        const infoEl = document.createElement('div');
+        infoEl.className = 'room-item-info';
+        
+        const nameEl = document.createElement('div');
+        nameEl.className = 'room-item-name';
+        nameEl.textContent = participant.nickname;
+        
+        if (participant.isHost) {
+          const badgeEl = document.createElement('span');
+          badgeEl.className = 'room-item-badge';
+          badgeEl.style.backgroundColor = 'var(--warning)';
+          badgeEl.textContent = '방장';
+          nameEl.appendChild(badgeEl);
+        } else if (participant.isManager) {
+          const badgeEl = document.createElement('span');
+          badgeEl.className = 'room-item-badge';
+          badgeEl.style.backgroundColor = 'var(--success)';
+          badgeEl.textContent = '매니저';
+          nameEl.appendChild(badgeEl);
+        }
+        
+        infoEl.appendChild(nameEl);
+        
+        participantEl.appendChild(avatarEl);
+        participantEl.appendChild(infoEl);
+        
+        // 방장인 경우 참가자 컨텍스트 메뉴 추가
+        if (participants[peer.id] && (participants[peer.id].isHost || participants[peer.id].isManager) && participant.id !== peer.id) {
+          participantEl.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showParticipantContextMenu(e, participant);
+          });
+        }
+        
+        participantsList.appendChild(participantEl);
+      });
+    }
+    
+    // 참가자 컨텍스트 메뉴 표시
+    function showParticipantContextMenu(event, participant) {
+      const rect = event.target.getBoundingClientRect();
+      
+      contextMenu.innerHTML = '';
+      contextMenu.style.top = `${event.clientY}px`;
+      contextMenu.style.left = `${event.clientX}px`;
+      
+      // 방장 전용 메뉴
+      if (participants[peer.id] && participants[peer.id].isHost) {
+        if (!participant.isManager) {
+          const promoteItem = document.createElement('div');
+          promoteItem.className = 'context-menu-item';
+          promoteItem.textContent = '매니저로 승격';
+          promoteItem.addEventListener('click', () => {
+            promoteToManager(participant.id);
+            contextMenu.classList.remove('active');
+          });
+          contextMenu.appendChild(promoteItem);
+        } else {
+          const demoteItem = document.createElement('div');
+          demoteItem.className = 'context-menu-item';
+          demoteItem.textContent = '매니저 권한 해제';
+          demoteItem.addEventListener('click', () => {
+            demoteFromManager(participant.id);
+            contextMenu.classList.remove('active');
+          });
+          contextMenu.appendChild(demoteItem);
+        }
+        
+        const transferHostItem = document.createElement('div');
+        transferHostItem.className = 'context-menu-item';
+        transferHostItem.textContent = '방장 위임';
+        transferHostItem.addEventListener('click', () => {
+          assignNewHost(participant.id);
+          contextMenu.classList.remove('active');
+        });
+        contextMenu.appendChild(transferHostItem);
+      }
+      
+      // 방장과 매니저 공통 메뉴
+      const kickItem = document.createElement('div');
+      kickItem.className = 'context-menu-item danger';
+      kickItem.textContent = '강제 퇴장';
+      kickItem.addEventListener('click', () => {
+        showConfirmation(`${participant.nickname}님을 강제로 퇴장시키겠습니까?`, () => {
+          kickParticipant(participant.id);
+        });
+        contextMenu.classList.remove('active');
+      });
+      contextMenu.appendChild(kickItem);
+      
+      // 메뉴 표시
+      contextMenu.classList.add('active');
+    }
+    
+    // 문자 랜덤 코드 생성 (3자리)
+    function generateRandomCode(length) {
+      const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      let result = '';
+      
+      for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+      }
+      
+      return result;
+    }
+    
+    // 숫자 랜덤 코드 생성 (4자리)
+    function generateRandomNumberCode(length) {
+      let result = '';
+      
+      for (let i = 0; i < length; i++) {
+        result += Math.floor(Math.random() * 10);
+      }
+      
+      return result;
+    }
+    
+    // 고유한 피어 ID 생성 함수
+    function generatePeerId() {
+      return 'peer-' + Math.random().toString(36).substr(2, 9);
+    }
+    
+    // 초기화 실행
+    init();
+  </script>
+</body>
+</html>
