@@ -27,11 +27,16 @@ const ICE_SERVERS = [
     { urls: 'stun:stun.voipbuster.com' },
     { urls: 'stun:stun.voipstunt.com' },
     { urls: 'stun:stun.voxgratia.org' },
-    // 공개 TURN 서버 (실제 운영 시에는 자체 TURN 서버 사용 권장)
+    // 안정적인 공개 TURN 서버 추가
     {
         urls: 'turn:numb.viagenie.ca',
         credential: 'muazkh',
         username: 'webrtc@live.com'
+    },
+    {
+        urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+        username: 'f4b4035eaa76f4a55de5f4351567653ee4ff6fa97b50b6b334fcc1be9c27212d',
+        credential: 'w1uxM55V9yVoqyVFjt+mxDBV0F87AUCemaYVQGxsPLw='
     }
 ];
 
@@ -66,7 +71,8 @@ const appState = {
     },
     typing: {                   // 타이핑 상태
         users: {},              // 타이핑 중인 사용자
-        timeout: null           // 타이핑 타임아웃
+        timeout: null,          // 타이핑 타임아웃
+        isTyping: false         // 현재 타이핑 중인지 여부 (추가)
     },
     peerConnectionStats: {},    // 피어 연결 상태 통계
     connectionEstablished: false // 연결 설정 완료 여부
@@ -129,6 +135,46 @@ const UI = {
     typingIndicator: document.getElementById('typingIndicator'),
     statusSelector: document.getElementById('statusSelector')
 };
+
+/**
+ * 아바타 표시 업데이트
+ * (이 함수를 saveProfile보다 먼저 정의하여 참조 오류 해결)
+ */
+function updateAvatarDisplay(avatarUrl) {
+    if (!avatarUrl) return;
+    
+    // 메인 UI의 아바타 업데이트
+    const userAvatar = document.getElementById('userAvatar');
+    if (userAvatar) {
+        userAvatar.style.backgroundImage = `url(${avatarUrl})`;
+        userAvatar.style.backgroundColor = 'transparent';
+    }
+    
+    // 사용자 목록에서 자신의 아바타 업데이트
+    if (appState.localUserId) {
+        const userItems = document.querySelectorAll(`.user-item[data-user-id="${appState.localUserId}"]`);
+        userItems.forEach(item => {
+            const avatar = item.querySelector('.user-item-avatar');
+            if (avatar) {
+                avatar.style.backgroundImage = `url(${avatarUrl})`;
+                avatar.style.backgroundColor = 'transparent';
+            }
+        });
+    }
+}
+
+/**
+ * 아바타 요소 업데이트 (재사용 가능한 유틸리티 함수)
+ */
+function updateAvatarElement(element, avatarUrl, userName) {
+    if (avatarUrl) {
+        element.style.backgroundImage = `url(${avatarUrl})`;
+        element.style.backgroundColor = 'transparent';
+    } else {
+        element.style.backgroundImage = '';
+        element.style.backgroundColor = getColorFromName(userName);
+    }
+}
 
 /**
  * 애플리케이션 초기화
@@ -345,6 +391,15 @@ function setupEventListeners() {
         });
     }
     
+    // 소리 알림 설정 이벤트
+    const soundToggle = document.getElementById('soundToggle');
+    if (soundToggle) {
+        soundToggle.addEventListener('change', (e) => {
+            appState.notifications.sound = e.target.checked;
+            saveNotificationSettings();
+        });
+    }
+    
     // 알림 권한 요청 이벤트
     const requestPermissionBtn = document.getElementById('requestPermissionBtn');
     if (requestPermissionBtn) {
@@ -500,6 +555,116 @@ function setupEventListeners() {
 }
 
 /**
+ * 사용자 관리 버튼 설정
+ */
+function setupUserManagementButtons() {
+    const giveAdminBtn = document.getElementById('giveAdminBtn');
+    const removeAdminBtn = document.getElementById('removeAdminBtn');
+    const timeoutUserBtn = document.getElementById('timeoutUserBtn');
+    const kickUserBtn = document.getElementById('kickUserBtn');
+    const banUserBtn = document.getElementById('banUserBtn');
+    
+    if (giveAdminBtn) {
+        giveAdminBtn.addEventListener('click', () => {
+            const userId = giveAdminBtn.dataset.userId;
+            if (userId && (appState.isHost || appState.isAdmin)) {
+                // 관리자 권한 부여
+                broadcastMessage({
+                    type: 'admin',
+                    action: 'promote',
+                    targetId: userId,
+                    fromId: appState.localUserId,
+                    fromName: appState.localUserName
+                });
+                
+                document.getElementById('userManageModal').classList.add('hidden');
+                showToast('관리자 권한을 부여했습니다.');
+            }
+        });
+    }
+    
+    if (removeAdminBtn) {
+        removeAdminBtn.addEventListener('click', () => {
+            const userId = removeAdminBtn.dataset.userId;
+            if (userId && (appState.isHost || appState.isAdmin)) {
+                // 관리자 권한 제거
+                broadcastMessage({
+                    type: 'admin',
+                    action: 'demote',
+                    targetId: userId,
+                    fromId: appState.localUserId,
+                    fromName: appState.localUserName
+                });
+                
+                document.getElementById('userManageModal').classList.add('hidden');
+                showToast('관리자 권한을 제거했습니다.');
+            }
+        });
+    }
+    
+    if (timeoutUserBtn) {
+        timeoutUserBtn.addEventListener('click', () => {
+            const userId = timeoutUserBtn.dataset.userId;
+            if (userId && (appState.isHost || appState.isAdmin)) {
+                // 타임아웃 (5분)
+                broadcastMessage({
+                    type: 'admin',
+                    action: 'timeout',
+                    targetId: userId,
+                    duration: 5, // 5분
+                    fromId: appState.localUserId,
+                    fromName: appState.localUserName
+                });
+                
+                document.getElementById('userManageModal').classList.add('hidden');
+                showToast('사용자가 5분 동안 타임아웃 상태가 되었습니다.');
+            }
+        });
+    }
+    
+    if (kickUserBtn) {
+        kickUserBtn.addEventListener('click', () => {
+            const userId = kickUserBtn.dataset.userId;
+            if (userId && (appState.isHost || appState.isAdmin)) {
+                // 강퇴
+                broadcastMessage({
+                    type: 'admin',
+                    action: 'kick',
+                    targetId: userId,
+                    fromId: appState.localUserId,
+                    fromName: appState.localUserName
+                });
+                
+                document.getElementById('userManageModal').classList.add('hidden');
+                showToast('사용자를
+                강퇴했습니다.');
+            }
+        });
+    }
+    
+    if (banUserBtn) {
+        banUserBtn.addEventListener('click', () => {
+            const userId = banUserBtn.dataset.userId;
+            if (userId && (appState.isHost || appState.isAdmin)) {
+                // 차단
+                appState.bannedUsers[userId] = true;
+                
+                broadcastMessage({
+                    type: 'admin',
+                    action: 'ban',
+                    targetId: userId,
+                    fromId: appState.localUserId,
+                    fromName: appState.localUserName
+                });
+                
+                document.getElementById('userManageModal').classList.add('hidden');
+                showToast('사용자를 차단했습니다.');
+            }
+        });
+    }
+}
+
+/**
  * 채널 컨텍스트 메뉴 설정
  */
 function setupChannelContextMenu() {
@@ -530,6 +695,93 @@ function setupChannelContextMenu() {
             deleteChannel(channelId);
         }
     });
+}
+
+/**
+ * 사용자 관리 모달 표시
+ */
+function showUserManageModal(userId) {
+    // 사용자 정보 확인
+    if (!appState.users[userId]) return;
+    
+    const user = appState.users[userId];
+    const managedUserName = document.getElementById('managedUserName');
+    const userManageInfo = document.getElementById('userManageInfo');
+    
+    // 관리자 권한 확인
+    if (!appState.isHost && !appState.isAdmin) {
+        showToast('사용자 관리 권한이 없습니다.');
+        return;
+    }
+    
+    // 사용자 정보 표시
+    if (managedUserName) {
+        managedUserName.textContent = `${user.name} 관리`;
+    }
+    
+    // 사용자 역할 정보
+    let roleInfo = '일반 사용자';
+    if (user.role === 'host') {
+        roleInfo = '방장';
+    } else if (user.role === 'admin') {
+        roleInfo = '관리자';
+    }
+    
+    if (userManageInfo) {
+        userManageInfo.innerHTML = `
+            <p><strong>역할:</strong> ${roleInfo}</p>
+            <p><strong>상태:</strong> ${getUserStatusText(user.status)}</p>
+        `;
+    }
+    
+    // 버튼 데이터 설정
+    const buttons = [
+        document.getElementById('giveAdminBtn'),
+        document.getElementById('removeAdminBtn'),
+        document.getElementById('timeoutUserBtn'),
+        document.getElementById('kickUserBtn'),
+        document.getElementById('banUserBtn')
+    ];
+    
+    buttons.forEach(btn => {
+        if (btn) btn.dataset.userId = userId;
+    });
+    
+    // 버튼 상태 설정
+    const giveAdminBtn = document.getElementById('giveAdminBtn');
+    const removeAdminBtn = document.getElementById('removeAdminBtn');
+    
+    if (giveAdminBtn) {
+        // 이미 관리자인 경우 숨김
+        giveAdminBtn.style.display = (user.role === 'admin') ? 'none' : 'block';
+    }
+    
+    if (removeAdminBtn) {
+        // 관리자가 아닌 경우 숨김
+        removeAdminBtn.style.display = (user.role === 'admin') ? 'block' : 'none';
+    }
+    
+    // 방장은 관리 불가
+    const actionButtons = document.querySelectorAll('.admin-action-btn');
+    actionButtons.forEach(btn => {
+        btn.disabled = (user.role === 'host');
+    });
+    
+    // 모달 표시
+    document.getElementById('userManageModal').classList.remove('hidden');
+}
+
+/**
+ * 사용자 상태 텍스트 반환
+ */
+function getUserStatusText(status) {
+    switch (status) {
+        case 'online': return '온라인';
+        case 'away': return '자리 비움';
+        case 'dnd': return '방해 금지';
+        case 'offline': return '오프라인';
+        default: return '온라인';
+    }
 }
 
 /**
@@ -842,46 +1094,6 @@ function saveProfile() {
 }
 
 /**
- * 아바타 표시 업데이트
- * 이제 모든 아바타 관련 UI를 업데이트하는 함수
- */
-function updateAvatarDisplay(avatarUrl) {
-    if (!avatarUrl) return;
-    
-    // 메인 UI의 아바타 업데이트
-    const userAvatar = document.getElementById('userAvatar');
-    if (userAvatar) {
-        userAvatar.style.backgroundImage = `url(${avatarUrl})`;
-        userAvatar.style.backgroundColor = 'transparent';
-    }
-    
-    // 사용자 목록에서 자신의 아바타 업데이트
-    if (appState.localUserId) {
-        const userItems = document.querySelectorAll(`.user-item[data-user-id="${appState.localUserId}"]`);
-        userItems.forEach(item => {
-            const avatar = item.querySelector('.user-item-avatar');
-            if (avatar) {
-                avatar.style.backgroundImage = `url(${avatarUrl})`;
-                avatar.style.backgroundColor = 'transparent';
-            }
-        });
-    }
-}
-
-/**
- * 아바타 요소 업데이트 (재사용 가능한 유틸리티 함수)
- */
-function updateAvatarElement(element, avatarUrl, userName) {
-    if (avatarUrl) {
-        element.style.backgroundImage = `url(${avatarUrl})`;
-        element.style.backgroundColor = 'transparent';
-    } else {
-        element.style.backgroundImage = '';
-        element.style.backgroundColor = getColorFromName(userName);
-    }
-}
-
-/**
  * 사용자 이름 저장
  */
 function saveUserName(userName) {
@@ -939,7 +1151,9 @@ function createRoom() {
     appState.peer = new Peer(roomId, {
         debug: 1, // 디버그 레벨 낮춤
         config: {
-            'iceServers': ICE_SERVERS
+            'iceServers': ICE_SERVERS,
+            'sdpSemantics': 'unified-plan', // 최신 WebRTC 표준 사용
+            'iceCandidatePoolSize': 10 // ICE 후보 풀 크기 증가
         }
     });
     
@@ -985,7 +1199,9 @@ function joinRoom(roomId) {
     appState.peer = new Peer(peerId, {
         debug: 1, // 디버그 레벨 낮춤
         config: {
-            'iceServers': ICE_SERVERS
+            'iceServers': ICE_SERVERS,
+            'sdpSemantics': 'unified-plan', // 최신 WebRTC 표준 사용
+            'iceCandidatePoolSize': 10 // ICE 후보 풀 크기 증가
         }
     });
     
@@ -1027,7 +1243,8 @@ function connectToHost(hostId) {
     
     try {
         const conn = appState.peer.connect(hostId, {
-            reliable: true
+            reliable: true,
+            serialization: 'json' // JSON 직렬화 사용 (추가)
         });
         
         // 연결 시간 초과 처리
@@ -1036,7 +1253,7 @@ function connectToHost(hostId) {
                 console.error('호스트 연결 시간 초과');
                 handleConnectionError('호스트 연결 시간이 초과되었습니다. 초대 코드를 다시 확인해주세요.');
             }
-        }, 15000); // 15초 타임아웃 (증가)
+        }, 20000); // 20초 타임아웃 (증가)
         
         conn.on('open', () => {
             console.log('호스트에 연결됨');
@@ -1441,13 +1658,13 @@ function playNotificationSound(type) {
     
     switch (type) {
         case 'message':
-            soundUrl = 'data:audio/wav;base64,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';
+            soundUrl = 'data:audio/wav;base64,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';
             break;
         case 'connect':
             soundUrl = 'data:audio/wav;base64,UklGRlQDAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YTADAACA/4D/gP+A/4D/gP+A/4D/f3+Af4H/gv+C/4D/ff98/3z/ff9+/4D/gv+E/4L/f/97/3j/d/94/3r/ff+A/4P/hP+C/37/ev94/3f/eP96/33/gP+D/4T/gv9+/3r/eP93/3j/e/99/4D/g/+E/4L/fv96/3j/d/94/3v/fv+B/4P/hP+B/33/ev94/3f/ef97/37/gf+D/4T/gf99/3r/eP94/3n/fP9+/4H/g/+D/4D/ff96/3j/eP96/3z/f/+C/4P/g/+A/33/ev95/3n/e/99/3//gv+D/4L/gP98/3r/ef96/3z/fv+A/4L/gv+B/3//fP97/3r/e/99/3//gf+C/4L/gP9+/3z/e/97/33/f/+B/4L/gv+A/37/fP97/3z/ff9//4H/gv+C/4D/fv98/3z/fP9+/4D/gf+C/4H/gP9+/33/fP99/37/gP+B/4L/gf+A/37/ff99/33/f/+A/4H/gf+B/3//fv99/33/fv9//4D/gf+B/4H/f/9+/33/ff9+/3//gP+B/4H/gP9//37/ff9+/37/f/+A/4H/gf+A/3//fv9+/37/f/+A/4D/gf+A/4D/f/9+/37/fv9//4D/gP+A/4D/f/9//37/fv9//3//gP+A/4D/f/9//3//fv9//3//gP+A/4D/gP9//3//fv9//3//gP+A/4D/gP9//3//f/9//3//gP+A/4D/gP+A/3//f/9//3//gP+A/4D/gP+A/3//f/9//3//gP+A/4D/gP+A/3//f/9//3//gP+A/4D/gP9//3//f/9//4D/gP+A/4D/gP9//3//f/+A/4D/gP+A/4D/f/9//3//gP+A/4D/gP+A/3//f/9//4D/gP+A/4D/gP+A/3//f/+A/4D/gP+A/4D/gP9//3//gP+A/4D/gP+A/4D/f/9//4D/gP+A/4D/gP+A/3//gP+A/4D/gP+A/4D/gP9//4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4A=';
             break;
         case 'error':
-            soundUrl = 'data:audio/wav;base64,UklGRgQGAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YOAFAAB5/2b/aP9q/2j/ZP9k/2P/ZP9m/2X/Y/9j/2P/ZP9j/2L/YP9h/2D/Xv9c/1n/V/9X/1X/VP9S/1L/U/9T/1X/Vv9Z/13/Y/9r/3T/fv+J/5X/of+y/77/y//X/+L/6//x//b/+P/5//X/8P/p/97/0f/D/7X/pv+X/4f/eP9q/13/Uf9G/zz/M/8s/yj/Jf8k/yb/Kf8u/zT/PP9G/1H/Xf9p/3T/gP+L/5f/oP+q/7H/t/+8/7//wP+//73/uv+0/67/pv+e/5X/iv+C/3j/b/9l/1z/U/9L/0T/Pv86/zf/Nf8z/zT/Nv85/z3/Q/9J/1H/Wf9h/2r/dP99/4b/j/+Y/5//pf+q/6//sv+0/7T/tP+y/6//rP+n/6P/nv+Y/5L/i/+E/37/d/9x/2v/Zf9g/1z/WP9V/1P/Uf9R/1H/Uv9V/1f/W/9f/2T/av9v/3X/e/+B/4b/jP+S/5b/m/+f/6L/pP+m/6f/p/+n/6b/pf+j/6H/nv+a/5b/kv+N/4j/hP9//3r/df9x/23/af9m/2P/Yf9f/1//X/9g/2L/ZP9n/2r/bf9x/3X/ef99/4H/hf+K/43/kf+V/5j/m/+d/5//oP+h/6H/of+g/5//nf+b/5n/lv+T/5D/jP+J/4X/gv9+/3v/eP91/3L/cP9u/2z/a/9q/2r/a/9s/27/cP9y/3X/eP96/33/gP+D/4b/if+M/47/kf+T/5X/l/+Y/5n/mf+a/5r/mf+Y/5f/lf+U/5L/kP+O/4v/if+H/4X/g/+B/3//ff97/3r/ef95/3j/eP94/3n/ev97/3z/ff9//4D/gv+E/4X/h/+I/4r/jP+N/4//kP+R/5L/kv+T/5P/lP+T/5P/kv+S/5H/kP+P/47/jf+M/4v/iv+I/4f/hv+F/4T/g/+C/4L/gf+B/4H/gf+B/4H/gf+C/4P/g/+E/4X/hv+H/4j/if+K/4v/jP+N/47/jv+P/5D/kP+Q/5D/kP+Q/5D/j/+P/47/jv+N/4z/jP+L/4r/if+I/4f/h/+G/4X/hf+E/4T/g/+D/4P/g/+E/4T/hP+F/4X/hv+G/4f/iP+J/4n/iv+L/4v/jP+N/43/jv+O/47/j/+P/4//j/+P/4//jv+O/43/jf+N/4z/i/+K/4r/if+I/4j/h/+H/4b/hv+G/4X/hf+F/4X/hf+F/4X/hv+G/4f/h/+I/4j/if+K/4r/i/+L/4z/jP+N/43/jv+O/47/jv+O/47/jv+O/43/jf+N/4z/jP+L/4v/iv+K/4n/iP+I/4j/h/+H/4b/hv+G/4b/hv+G/4b/hv+G/4f/h/+I/4j/if+J/4r/iv+L/4v/jP+M/43/jf+O/47/jv+O/47/jv+O/47/jv+N/43/jf+M/4z/jP+L/4v/iv+K/4n/if+I/4j/iP+H/4f/h/+H/4f/h/+H/4f/h/+I/4j/iP+J/4n/iv+K/4v/i/+L/4z/jP+N/43/jf+O/47/jv+O/47/jv+O/47/jf+N/43/jP+M/4z/i/+L/4v/iv+K/4n/if+J/4j/iP+I/4j/iP+I/4j/iP+I/4j/if+J/4r/iv+K/4v/i/+M/4z/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+N/43/jf+N/4z/jP+M/4v/i/+L/4r/iv+K/4n/if+J/4n/iP+I/4j/iP+I/4j/if+J/4n/if+K/4r/i/+L/4v/jP+M/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jf+N/43/jf+N/4z/jP+M/4v/i/+L/4r/iv+K/4r/if+J/4n/if+J/4n/if+J/4n/if+K/4r/iv+L/4v/i/+M/4z/jP+N/43/jf+N/47/jv+O/47/jv+O/47/jv+O/47/jf+N/43/jf+N/43/jP+M/4z/i/+L/4v/i/+K/4r/iv+K/4r/if+J/4n/if+J/4n/if+K/4r/iv+K/4v/i/+L/4z/jP+M/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jf+N/43/jf+N/43/jP+M/4z/jP+L/4v/i/+L/4r/iv+K/4r/iv+K/4r/iv+K/4r/iv+K/4r/i/+L/4v/jP+M/4z/jP+N/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+N/43/jf+N/43/jf+N/4z/jP+M/4z/i/+L/4v/i/+L/4r/iv+K/4r/iv+K/4r/iv+L/4v/i/+L/4v/jP+M/4z/jf+N/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+O/43/jf+N/43/jf+N/43/jP+M/4z/jP+M/4z/i/+L/4v/i/+L/4v/i/+L/4v/i/+L/4v/i/+M/4z/jP+M/4z/jf+N/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+O/47/jv+N/43/jf+N/43/jf+N/43/jP+M/4z/jA==';
+            soundUrl = 'data:audio/wav;base64,UklGRgQGAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YOAFAAB5/2b/aP9q/2j/ZP9k/2P/ZP9m/2X/Y/9j/2P/ZP9j/2L/YP9h/2D/Xv9c/1n/V/9X/1X/VP9S/1L/U/9T/1X/Vv9Z/13/Y/9r/3T/fv+J/5X/of+y/77/y//X/+L/6//x//b/+P/5//X/8P/p/97/0f/D/7X/pv+X/4f/eP9q/13/Uf9G/zz/M/8s/yj/Jf8k/yb/Kf8u/zT/PP9G/1H/Xf9p/3T/gP+L/5f/oP+q/7H/t/+8/7//wP+//73/uv+0/67/pv+e/5X/iv+C/3j/b/9l/1z/U/9L/0T/Pv86/zf/Nf8z/zT/Nv85/z3/Q/9J/1H/Wf9h/2r/dP99/4b/j/+Y/5//pf+q/6//sv+0/7T/tP+y/6//rP+n/6P/nv+Y/5L/i/+E/37/d/9x/2v/Zf9g/1z/WP9V/1P/Uf9R/1H/Uv9V/1f/W/9f/2T/av9v/3X/e/+B/4b/jP+S/5b/m/+f/6L/pP+m/6f/p/+n/6b/pf+j/6H/nv+a/5b/kv+N/4j/hP9//3r/df9x/23/af9m/2P/Yf9f/1//X/9g/2L/ZP9n/2r/bf9x/3X/ef99/4H/hf+K/43/kf+V/5j/m/+d/5//oP+h/6H/of+g/5//nf+b/5n/lv+T/5D/jP+J/4X/gv9+/3v/eP91/3L/cP9u/2z/a/9q/2r/a/9s/27/cP9y/3X/eP96/33/gP+D/4b/if+M/47/kf+T/5X/l/+Y/5n/mf+a/5r/mf+Y/5f/lf+U/5L/kP+O/4v/if+H/4X/g/+B/3//ff97/3r/ef95/3j/eP94/3n/ev97/3z/ff9//4D/gv+E/4X/h/+I/4r/jP+N/4//kP+R/5L/kv+T/5P/lP+T/5P/kv+S/5H/kP+P/47/jf+M/4v/iv+I/4f/hv+F/4T/g/+C/4L/gf+B/4H/gf+B/4H/gf+C/4P/g/+E/4X/hv+H/4j/if+K/4v/jP+N/47/jv+P/5D/kP+Q/5D/kP+Q/5D/j/+P/47/jv+N/4z/jP+L/4r/if+I/4f/h/+G/4X/hf+E/4T/g/+D/4P/g/+E/4T/hP+F/4X/hv+G/4f/iP+J/4n/iv+L/4v/jP+N/43/jv+O/47/j/+P/4//j/+P/4//jv+O/43/jf+N/4z/i/+K/4r/if+I/4j/h/+H/4b/hv+G/4X/hf+F/4X/hf+F/4X/hv+G/4f/h/+I/4j/if+K/4r/i/+L/4z/jP+N/43/jv+O/47/jv+O/47/jv+O/43/jf+N/4z/jP+L/4v/iv+K/4n/iP+I/4j/h/+H/4b/hv+G/4b/hv+G/4b/hv+G/4f/h/+I/4j/if+J/4r/iv+L/4v/jP+M/43/jf+O/47/jv+O/47/jv+O/47/jv+N/43/jf+M/4z/jP+L/4v/iv+K/4n/if+I/4j/iP+H/4f/h/+H/4f/h/+H/4f/h/+I/4j/iP+J/4n/iv+K/4v/i/+L/4z/jP+N/43/jf+O/47/jv+O/47/jv+O/47/jf+N/43/jP+M/4z/i/+L/4v/iv+K/4n/if+J/4j/iP+I/4j/iP+I/4j/iP+I/4j/if+J/4r/iv+K/4v/i/+M/4z/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+N/43/jf+N/4z/jP+M/4v/i/+L/4r/iv+K/4n/if+J/4n/iP+I/4j/iP+I/4j/if+J/4n/if+K/4r/i/+L/4v/jP+M/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jf+N/43/jf+N/4z/jP+M/4v/i/+L/4r/iv+K/4r/if+J/4n/if+J/4n/if+J/4n/if+K/4r/iv+L/4v/i/+M/4z/jP+N/43/jf+N/47/jv+O/47/jv+O/47/jv+O/47/jf+N/43/jf+N/43/jP+M/4z/i/+L/4v/i/+K/4r/iv+K/4r/if+J/4n/if+J/4n/if+K/4r/iv+K/4v/i/+L/4z/jP+M/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jf+N/43/jf+N/43/jP+M/4z/jP+L/4v/i/+L/4r/iv+K/4r/iv+K/4r/iv+K/4r/iv+K/4r/i/+L/4v/jP+M/4z/jP+N/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+N/43/jf+N/43/jf+N/4z/jP+M/4z/i/+L/4v/i/+L/4r/iv+K/4r/iv+K/4r/iv+L/4v/i/+L/4v/jP+M/4z/jf+N/43/jf+N/43/jv+O/47/jv+O/47/jv+O/47/jv+O/43/jf+N/43/jf+N/43/jP+M/4z/jP+M/4z/i/+L/4v/i/+L/4v/i/+L/4v/i/+L/4v/i';
             break;
         default:
             return;
@@ -1456,7 +1673,10 @@ function playNotificationSound(type) {
     try {
         const audio = new Audio(soundUrl);
         audio.volume = 0.5; // 볼륨 설정
-        audio.play();
+        audio.play().catch(e => {
+            console.warn('알림 소리 재생 실패:', e);
+            // 일부 브라우저는 사용자 상호작용 없이 소리 재생을 차단함
+        });
     } catch (e) {
         console.warn('알림 소리 재생 실패:', e);
     }
@@ -3364,7 +3584,8 @@ function connectToPeer(peerId) {
     
     try {
         const conn = appState.peer.connect(peerId, {
-            reliable: true
+            reliable: true,
+            serialization: 'json' // JSON 직렬화 사용
         });
         
         conn.on('open', () => {
