@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>cchat - 서버 없는 P2P 채팅</title>
+    <meta name="description" content="WebRTC 기반 P2P 채팅 애플리케이션. 서버 없이 브라우저 간 직접 통신합니다.">
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" href="favicon-modern.ico" type="image/x-icon">
 </head>
@@ -40,7 +41,7 @@
             <div class="app-logo">cchat</div>
             <div class="channels-header">
                 <span>채널</span>
-                <span id="addChannelIcon" class="add-icon">+</span>
+                <span id="addChannelIcon" class="add-icon" title="채널 추가">+</span>
             </div>
             <div class="channels-list" id="channelsList">
                 <div class="channel active" data-channel="general">일반</div>
@@ -62,9 +63,10 @@
                     <button id="inviteBtn" class="invite-button">초대하기</button>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
+                <div class="typing-indicator hidden" id="typingIndicator"></div>
                 <div class="chat-input-area">
                     <div class="file-upload">
-                        <label for="fileInput" class="file-upload-btn">+</label>
+                        <label for="fileInput" class="file-upload-btn" title="파일 보내기">+</label>
                         <input type="file" id="fileInput" class="hidden">
                     </div>
                     <input type="text" id="messageInput" placeholder="메시지 입력...">
@@ -160,6 +162,14 @@
                         <label for="profileNameInput">이름</label>
                         <input type="text" id="profileNameInput" placeholder="사용자 이름 입력">
                     </div>
+                    <div class="status-selector">
+                        <label for="statusSelector">상태:</label>
+                        <select id="statusSelector">
+                            <option value="online">온라인</option>
+                            <option value="away">자리 비움</option>
+                            <option value="dnd">방해 금지</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="notification-settings">
                     <h3>알림 설정</h3>
@@ -170,9 +180,26 @@
                             <span class="slider round"></span>
                         </label>
                     </div>
+                    <div class="setting-row">
+                        <label for="soundToggle">알림 소리</label>
+                        <label class="switch">
+                            <input type="checkbox" id="soundToggle" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
                     <div class="notification-permission-info hidden" id="notificationPermissionInfo">
                         <p>알림 권한이 필요합니다. 브라우저 설정에서 권한을 허용해주세요.</p>
                         <button id="requestPermissionBtn" class="secondary-button">권한 요청</button>
+                    </div>
+                </div>
+                <div class="theme-settings">
+                    <h3>테마 설정</h3>
+                    <div class="setting-row">
+                        <label for="themeToggle">밝은 테마</label>
+                        <label class="switch">
+                            <input type="checkbox" id="themeToggle">
+                            <span class="slider round"></span>
+                        </label>
                     </div>
                 </div>
                 <button id="saveProfileBtn" class="primary-button">저장</button>
@@ -228,26 +255,38 @@
         </div>
     </div>
 
+    <!-- 정보창 모달 -->
+    <div class="modal-overlay hidden" id="infoModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>cchat 정보</h2>
+                <span class="close-modal" id="closeInfoModal">&times;</span>
+            </div>
+            <div class="modal-content">
+                <div class="info-section">
+                    <h3>cchat 버전 1.2.0</h3>
+                    <p>서버 없이 브라우저 간 직접 통신하는 P2P 채팅 애플리케이션입니다.</p>
+                    <p>WebRTC 기술을 활용하여 중앙 서버 없이도 실시간 통신이 가능합니다.</p>
+                    <h4>주요 기능</h4>
+                    <ul>
+                        <li>실시간 텍스트 채팅</li>
+                        <li>파일 전송</li>
+                        <li>다중 채널 지원</li>
+                        <li>사용자 관리 (관리자, 타임아웃, 차단)</li>
+                        <li>개인 프로필 설정</li>
+                        <li>알림 및 상태 표시</li>
+                    </ul>
+                    <p class="info-footer">Made with ❤️ by cchat team, 2023</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- QR 코드 생성용 라이브러리 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <!-- 심플한 P2P 라이브러리 (PeerJS) -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <!-- 메인 스크립트 -->
     <script src="app.js"></script>
-    <!-- 애니메이션 키프레임 스타일 -->
-    <style>
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translate(-50%, 20px); }
-            to { opacity: 1; transform: translate(-50%, 0); }
-        }
-        @keyframes fadeOut {
-            from { opacity: 1; transform: translate(-50%, 0); }
-            to { opacity: 0; transform: translate(-50%, 20px); }
-        }
-        
-        .toast {
-            animation: fadeIn 0.3s, fadeOut 0.3s 2.7s;
-        }
-    </style>
 </body>
 </html>
