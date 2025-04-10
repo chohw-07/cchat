@@ -1131,17 +1131,7 @@ function startPingProcess(connection) {
 
 // handleReceivedMessage 함수 상단에 추가
 // 핑 메시지 처리
-if (message.type === 'ping') {
-    // 핑에 대한 응답 전송
-    if (appState.connections[fromPeerId]) {
-        sendData(appState.connections[fromPeerId], { 
-            type: 'pong', 
-            timestamp: message.timestamp,
-            responseTime: Date.now() 
-        });
-    }
-     // 다른 처리 없이 종료
-}
+
 function setupConnectionPing(conn) {
     if (!conn) return;
     
@@ -3743,7 +3733,17 @@ function handleReceivedMessage(message, fromPeerId) {
             // 메시지 중계: 발신자를 제외한 모든 피어에게 전달
             relayMessageToAllPeers(message, fromPeerId);
         }
-        
+        if (message.type === 'ping') {
+            // 핑에 대한 응답 전송
+            if (appState.connections[fromPeerId]) {
+                sendData(appState.connections[fromPeerId], { 
+                    type: 'pong', 
+                    timestamp: message.timestamp,
+                    responseTime: Date.now() 
+                });
+            }
+             // 다른 처리 없이 종료
+        }
         switch (message.type) {
             case 'chat':
                 // 삭제된 메시지인지 확인
