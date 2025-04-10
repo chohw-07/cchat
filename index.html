@@ -6,47 +6,116 @@
     <title>cchat - 서버 없는 P2P 채팅</title>
     <meta name="description" content="WebRTC 기반 P2P 채팅 애플리케이션. 서버 없이 브라우저 간 직접 통신합니다.">
     <link rel="stylesheet" href="styles.css">
-    <!-- favicon 경로 수정 -->
     <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 <body>
-    <!-- 필수 진입 모달 -->
+    <!-- 진입 모달 -->
     <div class="modal-overlay" id="entryModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2>cchat에 오신 것을 환영합니다</h2>
+                <h2 data-i18n="welcome">cchat에 오신 것을 환영합니다</h2>
             </div>
             <div class="modal-content">
-                <div class="setup-option">
-                    <h3>1. 새 방 만들기</h3>
-                    <button id="createRoomModalBtn" class="primary-button">방 만들기</button>
+                <div class="app-logo-large">
+                    <img src="favicon.ico" alt="cchat logo" class="logo-img">
+                    <div class="logo-text">cchat</div>
                 </div>
                 <div class="setup-option">
-                    <h3>2. 방 참여하기</h3>
+                    <h3 data-i18n="create_room">1. 새 방 만들기</h3>
+                    <button id="createRoomModalBtn" class="primary-button" data-i18n="create_room">방 만들기</button>
+                </div>
+                <div class="setup-option">
+                    <h3 data-i18n="join_room">2. 방 참여하기</h3>
                     <div class="join-form">
-                        <input type="text" id="joinCodeModalInput" placeholder="초대 코드 입력">
-                        <button id="joinRoomModalBtn" class="primary-button">참여하기</button>
+                        <input type="text" id="joinCodeModalInput" data-i18n-placeholder="enter_invite_code" placeholder="초대 코드 입력">
+                        <button id="joinRoomModalBtn" class="primary-button" data-i18n="join">참여하기</button>
                     </div>
                 </div>
                 <div class="name-setup">
-                    <h3>사용자 이름 설정</h3>
-                    <input type="text" id="userNameModalInput" placeholder="사용자 이름 입력">
+                    <h3 data-i18n="user_name_setup">사용자 이름 설정</h3>
+                    <input type="text" id="userNameModalInput" data-i18n-placeholder="enter_user_name" placeholder="사용자 이름 입력">
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- CAPTCHA 인증 모달 -->
+    <div class="modal-overlay hidden" id="captchaModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 data-i18n="captcha_verification">CAPTCHA 인증</h2>
+            </div>
+            <div class="modal-content">
+                <p data-i18n="captcha_instruction">아래에 표시된 문자를 입력하세요:</p>
+                <div class="captcha-container">
+                    <img id="captchaImage" src="" alt="CAPTCHA Image" class="captcha-image">
+                    <input type="text" id="captchaInput" class="captcha-input" autocomplete="off">
+                </div>
+                <button id="verifyCaptchaBtn" class="primary-button" data-i18n="verify">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 이름 설정 모달 -->
+    <div class="modal-overlay hidden" id="nameSetupModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 data-i18n="name_setup">이름 설정</h2>
+            </div>
+            <div class="modal-content">
+                <div class="name-avatar-setup">
+                    <div class="avatar-setup">
+                        <div class="current-avatar" id="nameSetupAvatarPreview"></div>
+                        <button class="secondary-button" id="nameSetupAvatarBtn" data-i18n="select_avatar">프로필 이미지 선택</button>
+                        <input type="file" id="nameSetupAvatarInput" class="hidden" accept="image/*">
+                    </div>
+                    <div class="name-input-setup">
+                        <label for="nameSetupInput" data-i18n="name">이름</label>
+                        <input type="text" id="nameSetupInput" data-i18n-placeholder="enter_user_name" placeholder="사용자 이름 입력">
+                    </div>
+                </div>
+                <button id="saveNameBtn" class="primary-button" data-i18n="save_name">저장</button>
+            </div>
+        </div>
+    </div>
+
     <div class="app-container">
-        <!-- 채널 목록 -->
+        <!-- 좌측: 채널 목록 패널 -->
         <div class="channels-panel">
-            <div class="app-logo">cchat</div>
-            <div class="channels-header">
-                <span>채널</span>
-                <span id="addChannelIcon" class="add-icon" title="채널 추가">+</span>
+            <div class="app-logo">
+                <img src="favicon.ico" alt="cchat logo" class="logo-icon">
+                <div class="logo-text">cchat</div>
             </div>
-            <div class="channels-list" id="channelsList">
-                <div class="channel active" data-channel="general">일반</div>
+            <!-- 텍스트 채널 섹션 -->
+            <div class="channels-section">
+                <div class="channels-header">
+                    <span data-i18n="channels">채널</span>
+                    <span id="addChannelIcon" class="add-icon" title="채널 추가">+</span>
+                </div>
+                <div class="channels-list" id="channelsList">
+                    <div class="channel active" data-channel="general">일반</div>
+                </div>
             </div>
+            <!-- 음성 채널 섹션 -->
+            <div class="channels-section">
+                <div class="channels-header">
+                    <span data-i18n="voice_channels">음성 채널</span>
+                    <span id="addVoiceChannelIcon" class="add-icon" title="음성 채널 추가">+</span>
+                </div>
+                <div class="voice-channels-list" id="voiceChannelsList">
+                    <div class="voice-channel" data-channel="voice-general">
+                        <div class="voice-channel-icon">🔊</div>
+                        <div class="voice-channel-info">
+                            <div class="voice-channel-name">일반 음성채팅</div>
+                            <div class="voice-channel-users">0명</div>
+                        </div>
+                        <div class="voice-channel-actions">
+                            <button class="voice-join-btn" title="참여하기">▶</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 사용자 정보 -->
             <div class="user-info" id="userInfo">
                 <div class="user-avatar" id="userAvatar"></div>
                 <div class="user-name" id="userName">사용자</div>
@@ -60,25 +129,45 @@
             <div id="chatScreen" class="chat-screen">
                 <div class="chat-header">
                     <h2 id="roomName">채팅방</h2>
-                    <div class="connection-status" id="connectionStatus">연결 중...</div>
-                    <button id="inviteBtn" class="invite-button">초대하기</button>
+                    <div class="header-actions">
+                        <div class="connection-status" id="connectionStatus">연결 중...</div>
+                        <button id="inviteBtn" class="invite-button" data-i18n="invite_friends">초대하기</button>
+                    </div>
                 </div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="typing-indicator hidden" id="typingIndicator"></div>
-                <div class="chat-input-area">
-                    <div class="file-upload">
-                        <label for="fileInput" class="file-upload-btn" title="파일 보내기">+</label>
-                        <input type="file" id="fileInput" class="hidden">
+                <!-- 음성 채팅 컨트롤 -->
+                <div class="voice-controls hidden" id="voiceControls">
+                    <div class="voice-control-info">
+                        <div class="voice-users" id="voiceUsers"></div>
                     </div>
-                    <input type="text" id="messageInput" placeholder="메시지 입력...">
-                    <button id="sendMessageBtn">전송</button>
+                    <div class="voice-control-buttons">
+                        <button class="voice-control-btn" id="muteBtn" title="음소거">🎤</button>
+                        <button class="voice-control-btn" id="deafenBtn" title="헤드셋 끄기">🎧</button>
+                        <button class="voice-control-btn" id="disconnectBtn" title="연결 끊기">⏏️</button>
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <div class="chat-input-tools">
+                        <div class="file-upload">
+                            <label for="fileInput" class="file-upload-btn" title="파일 보내기">+</label>
+                            <input type="file" id="fileInput" class="hidden">
+                        </div>
+                        <button id="emojiButton" class="emoji-button" title="이모지">😊</button>
+                    </div>
+                    <input type="text" id="messageInput" data-i18n-placeholder="enter_message" placeholder="메시지 입력...">
+                    <button id="sendMessageBtn" data-i18n="send">전송</button>
+                </div>
+                <!-- 이모지 피커 -->
+                <div class="emoji-picker hidden" id="emojiPicker">
+                    <div class="emoji-grid" id="emojiGrid"></div>
                 </div>
             </div>
         </div>
 
         <!-- 우측: 사용자 목록 -->
         <div class="users-panel" id="usersPanel">
-            <div class="users-header">접속 중인 사용자</div>
+            <div class="users-header" data-i18n="online_users">접속 중인 사용자</div>
             <div class="users-list" id="usersList"></div>
         </div>
     </div>
@@ -87,19 +176,19 @@
     <div class="modal-overlay hidden" id="inviteModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2>친구 초대하기</h2>
+                <h2 data-i18n="invite_friends">친구 초대하기</h2>
                 <span class="close-modal" id="closeInviteModal">&times;</span>
             </div>
             <div class="modal-content">
                 <div class="invite-info">
-                    <h3>초대 코드</h3>
+                    <h3 data-i18n="invite_code">초대 코드</h3>
                     <div class="invite-code" id="inviteCode"></div>
-                    <button id="copyInviteBtn" class="secondary-button">코드 복사</button>
+                    <button id="copyInviteBtn" class="secondary-button" data-i18n="copy_code">코드 복사</button>
                 </div>
                 <div class="invite-info">
-                    <h3>초대 링크</h3>
+                    <h3 data-i18n="invite_link">초대 링크</h3>
                     <div class="invite-code" id="inviteLink"></div>
-                    <button id="copyLinkBtn" class="secondary-button">링크 복사</button>
+                    <button id="copyLinkBtn" class="secondary-button" data-i18n="copy_link">링크 복사</button>
                 </div>
                 <div class="qr-container" id="qrContainer"></div>
             </div>
@@ -110,7 +199,7 @@
     <div class="modal-overlay hidden" id="connectionModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2>연결 중...</h2>
+                <h2 data-i18n="connecting">연결 중...</h2>
             </div>
             <div class="modal-content">
                 <div class="connection-steps">
@@ -139,7 +228,7 @@
                 <div class="connection-error hidden" id="connectionError">
                     <div class="error-icon">❌</div>
                     <div class="error-message">연결 중 오류가 발생했습니다.</div>
-                    <button id="retryConnectionBtn" class="primary-button">다시 시도</button>
+                    <button id="retryConnectionBtn" class="primary-button" data-i18n="retry">다시 시도</button>
                 </div>
             </div>
         </div>
@@ -149,61 +238,116 @@
     <div class="modal-overlay hidden" id="profileModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2>프로필 설정</h2>
+                <h2 data-i18n="profile_settings">프로필 설정</h2>
                 <span class="close-modal" id="closeProfileModal">&times;</span>
             </div>
             <div class="modal-content">
                 <div class="profile-section">
                     <div class="avatar-selector">
                         <div class="current-avatar" id="currentAvatar"></div>
-                        <button id="changeAvatarBtn" class="secondary-button">이미지 변경</button>
+                        <button id="changeAvatarBtn" class="secondary-button" data-i18n="select_avatar">이미지 변경</button>
                         <input type="file" id="avatarInput" accept="image/*" class="hidden">
                     </div>
                     <div class="profile-name">
-                        <label for="profileNameInput">이름</label>
-                        <input type="text" id="profileNameInput" placeholder="사용자 이름 입력">
+                        <label for="profileNameInput" data-i18n="name">이름</label>
+                        <input type="text" id="profileNameInput" data-i18n-placeholder="enter_user_name" placeholder="사용자 이름 입력">
                     </div>
                     <div class="status-selector">
-                        <label for="statusSelector">상태:</label>
+                        <label for="statusSelector" data-i18n="status">상태:</label>
                         <select id="statusSelector">
-                            <option value="online">온라인</option>
-                            <option value="away">자리 비움</option>
-                            <option value="dnd">방해 금지</option>
+                            <option value="online" data-i18n="status_online">온라인</option>
+                            <option value="away" data-i18n="status_away">자리 비움</option>
+                            <option value="dnd" data-i18n="status_dnd">방해 금지</option>
                         </select>
                     </div>
                 </div>
                 <div class="notification-settings">
-                    <h3>알림 설정</h3>
+                    <h3 data-i18n="notification_settings">알림 설정</h3>
                     <div class="setting-row">
-                        <label for="notificationToggle">데스크톱 알림</label>
+                        <label for="notificationToggle" data-i18n="desktop_notifications">데스크톱 알림</label>
                         <label class="switch">
                             <input type="checkbox" id="notificationToggle" checked>
                             <span class="slider round"></span>
                         </label>
                     </div>
                     <div class="setting-row">
-                        <label for="soundToggle">알림 소리</label>
+                        <label for="soundToggle" data-i18n="sound_notifications">알림 소리</label>
                         <label class="switch">
                             <input type="checkbox" id="soundToggle" checked>
                             <span class="slider round"></span>
                         </label>
                     </div>
                     <div class="notification-permission-info hidden" id="notificationPermissionInfo">
-                        <p>알림 권한이 필요합니다. 브라우저 설정에서 권한을 허용해주세요.</p>
-                        <button id="requestPermissionBtn" class="secondary-button">권한 요청</button>
+                        <p data-i18n="notification_permission_required">알림 권한이 필요합니다. 브라우저 설정에서 권한을 허용해주세요.</p>
+                        <button id="requestPermissionBtn" class="secondary-button" data-i18n="request_permission">권한 요청</button>
+                    </div>
+                </div>
+                <div class="voice-settings">
+                    <h3 data-i18n="voice_settings">음성 설정</h3>
+                    <div class="setting-row">
+                        <label for="noiseSuppressionToggle" data-i18n="noise_suppression">잡음 제거</label>
+                        <label class="switch">
+                            <input type="checkbox" id="noiseSuppressionToggle" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <label for="echoCancellationToggle" data-i18n="echo_cancellation">에코 제거</label>
+                        <label class="switch">
+                            <input type="checkbox" id="echoCancellationToggle" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <button id="voiceSettingsBtn" class="secondary-button">음성 설정 저장</button>
+                </div>
+                <div class="language-settings">
+                    <h3 data-i18n="language_settings">언어 설정</h3>
+                    <div class="setting-row">
+                        <label for="languageSelector" data-i18n="language">언어</label>
+                        <select id="languageSelector">
+                            <option value="ko">한국어</option>
+                            <option value="en">English</option>
+                        </select>
                     </div>
                 </div>
                 <div class="theme-settings">
-                    <h3>테마 설정</h3>
+                    <h3 data-i18n="theme_settings">테마 설정</h3>
                     <div class="setting-row">
-                        <label for="themeToggle">밝은 테마</label>
+                        <label for="themeToggle" data-i18n="light_theme">밝은 테마</label>
                         <label class="switch">
                             <input type="checkbox" id="themeToggle">
                             <span class="slider round"></span>
                         </label>
                     </div>
                 </div>
-                <button id="saveProfileBtn" class="primary-button">저장</button>
+                <button id="saveProfileBtn" class="primary-button" data-i18n="save">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 음성 설정 모달 -->
+    <div class="modal-overlay hidden" id="voiceSettingsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 data-i18n="voice_settings">음성 설정</h2>
+                <span class="close-modal" id="closeVoiceSettingsModal">&times;</span>
+            </div>
+            <div class="modal-content">
+                <div class="setting-row">
+                    <label for="noiseSuppressionToggle" data-i18n="noise_suppression">잡음 제거</label>
+                    <label class="switch">
+                        <input type="checkbox" id="noiseSuppressionToggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="setting-row">
+                    <label for="echoCancellationToggle" data-i18n="echo_cancellation">에코 제거</label>
+                    <label class="switch">
+                        <input type="checkbox" id="echoCancellationToggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <button id="saveVoiceSettingsBtn" class="primary-button" data-i18n="save">저장</button>
             </div>
         </div>
     </div>
@@ -212,24 +356,24 @@
     <div class="modal-overlay hidden" id="adminModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2>관리자 메뉴</h2>
+                <h2 data-i18n="admin_menu">관리자 메뉴</h2>
                 <span class="close-modal" id="closeAdminModal">&times;</span>
             </div>
             <div class="modal-content">
                 <div class="admin-section">
-                    <h3>사용자 관리</h3>
+                    <h3 data-i18n="user_management">사용자 관리</h3>
                     <div class="admin-user-list" id="adminUserList">
                         <!-- 사용자 목록이 여기에 동적으로 표시됨 -->
                     </div>
                 </div>
                 <div class="admin-section">
-                    <h3>채널 관리</h3>
+                    <h3 data-i18n="channel_management">채널 관리</h3>
                     <div class="admin-channel-list" id="adminChannelList">
                         <!-- 채널 목록이 여기에 동적으로 표시됨 -->
                     </div>
                     <div class="add-channel">
-                        <input type="text" id="newChannelInput" placeholder="새 채널 이름">
-                        <button id="addChannelBtn" class="secondary-button">채널 추가</button>
+                        <input type="text" id="newChannelInput" data-i18n-placeholder="channel_name" placeholder="새 채널 이름">
+                        <button id="addChannelBtn" class="secondary-button" data-i18n="add_channel">채널 추가</button>
                     </div>
                 </div>
             </div>
@@ -240,52 +384,49 @@
     <div class="modal-overlay hidden" id="userManageModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2 id="managedUserName">사용자 관리</h2>
+                <h2 id="managedUserName" data-i18n="user_management_for">사용자 관리</h2>
                 <span class="close-modal" id="closeUserManageModal">&times;</span>
             </div>
             <div class="modal-content">
                 <div class="user-manage-options">
-                    <button id="giveAdminBtn" class="admin-action-btn">관리자 권한 부여</button>
-                    <button id="removeAdminBtn" class="admin-action-btn">관리자 권한 제거</button>
-                    <button id="timeoutUserBtn" class="admin-action-btn">타임아웃 (5분)</button>
-                    <button id="kickUserBtn" class="admin-action-btn warning">강퇴</button>
-                    <button id="banUserBtn" class="admin-action-btn danger">차단</button>
+                    <button id="giveAdminBtn" class="admin-action-btn" data-i18n="give_admin">관리자 권한 부여</button>
+                    <button id="removeAdminBtn" class="admin-action-btn" data-i18n="remove_admin">관리자 권한 제거</button>
+                    <button id="timeoutUserBtn" class="admin-action-btn" data-i18n="timeout_user">타임아웃 (5분)</button>
+                    <button id="kickUserBtn" class="admin-action-btn warning" data-i18n="kick_user">강퇴</button>
+                    <button id="banUserBtn" class="admin-action-btn danger" data-i18n="ban_user">차단</button>
                 </div>
                 <div id="userManageInfo" class="user-manage-info"></div>
             </div>
         </div>
     </div>
 
-    <!-- 정보창 모달 -->
-    <div class="modal-overlay hidden" id="infoModal">
+    <!-- 방장 이임 모달 -->
+    <div class="modal-overlay hidden" id="transferOwnerModal">
         <div class="modal-container">
             <div class="modal-header">
-                <h2>cchat 정보</h2>
-                <span class="close-modal" id="closeInfoModal">&times;</span>
+                <h2 data-i18n="transfer_ownership">방장 권한 이임</h2>
+                <span class="close-modal" id="closeTransferOwnerModal">&times;</span>
             </div>
             <div class="modal-content">
-                <div class="info-section">
-                    <h3>cchat 버전 1.2.0</h3>
-                    <p>서버 없이 브라우저 간 직접 통신하는 P2P 채팅 애플리케이션입니다.</p>
-                    <p>WebRTC 기술을 활용하여 중앙 서버 없이도 실시간 통신이 가능합니다.</p>
-                    <h4>주요 기능</h4>
-                    <ul>
-                        <li>실시간 텍스트 채팅</li>
-                        <li>파일 전송</li>
-                        <li>다중 채널 지원</li>
-                        <li>사용자 관리 (관리자, 타임아웃, 차단)</li>
-                        <li>개인 프로필 설정</li>
-                        <li>알림 및 상태 표시</li>
-                    </ul>
-                    <p class="info-footer">Made with ❤️ by cchat team, 2023</p>
+                <p>다음 사용자 중 한 명에게 방장 권한을 이임할 수 있습니다:</p>
+                <div class="transfer-owner-list" id="transferOwnerList">
+                    <!-- 사용자 목록 -->
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- 이미지 뷰어 모달 (동적 생성) -->
+    <div class="modal-overlay hidden image-viewer-modal" id="imageViewerModal">
+        <div class="image-viewer-container">
+            <img src="" id="fullsizeImage" class="fullsize-image" />
+            <button class="close-image-viewer">&times;</button>
+        </div>
+    </div>
+
     <!-- QR 코드 생성용 라이브러리 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <!-- 심플한 P2P 라이브러리 (PeerJS) - 최신 버전으로 업데이트 -->
+    <!-- P2P 라이브러리 (PeerJS) -->
     <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
     <!-- 메인 스크립트 -->
     <script src="app.js"></script>
