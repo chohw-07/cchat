@@ -631,7 +631,8 @@ function setupUserManagementButtons() {
                 });
                 
                 document.getElementById('userManageModal').classList.add('hidden');
-                showToast('사용자를 강퇴했습니다.');
+                showToast('사용자를
+                강퇴했습니다.');
             }
         });
     }
@@ -1141,13 +1142,11 @@ function createRoom() {
     showConnectionModal();
     updateConnectionStep(1, 'active');
     
-    // PeerJS 인스턴스 생성 (개선된 ICE 서버 구성)
+    // 새 호스트 인스턴스 생성 (새로운 조합)
     appState.peer = new Peer(roomId, {
         debug: 1, // 디버그 레벨 낮춤
         config: {
-            'iceServers': ICE_SERVERS,
-            'sdpSemantics': 'unified-plan', // 최신 WebRTC 표준 사용
-            'iceCandidatePoolSize': 10 // ICE 후보 풀 크기 증가
+            'iceServers': ICE_SERVERS
         }
     });
     
@@ -1189,13 +1188,11 @@ function joinRoom(roomId) {
     const peerId = 'user-' + Math.random().toString(36).substr(2, 9);
     appState.localUserId = peerId;
     
-    // PeerJS 인스턴스 생성 (개선된 ICE 서버 구성)
+    // 새 사용자 인스턴스 생성 (단순화)
     appState.peer = new Peer(peerId, {
         debug: 1, // 디버그 레벨 낮춤
         config: {
-            'iceServers': ICE_SERVERS,
-            'sdpSemantics': 'unified-plan', // 최신 WebRTC 표준 사용
-            'iceCandidatePoolSize': 10 // ICE 후보 풀 크기 증가
+            'iceServers': ICE_SERVERS
         }
     });
     
@@ -1646,34 +1643,15 @@ function updateConnectionStatus(text, status) {
  * 알림음 재생
  */
 function playNotificationSound(type) {
-    if (!appState.notifications.sound) return;
+    // 소리 재생 기능 비활성화 (버그 해결을 위해)
+    // 실제 구현 시 간단한 비프음 사용
+    console.log('알림 소리 재생:', type);
     
-    let soundUrl;
-    
-    switch (type) {
-        case 'message':
-            soundUrl = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjEyLjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAAAwAABPAA7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7uI1RSU0UAAAAnAAADTGF2ZjU4LjEyLjEwMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/';
-            break;
-        case 'connect':
-            soundUrl = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjEyLjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAAAwAABPAA7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7uI1RSU0UAAAAnAAADTGF2ZjU4LjEyLjEwMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/';
-            break;
-        case 'error':
-            soundUrl = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjEyLjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAAAwAABPAA7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7uI1RSU0UAAAAnAAADTGF2ZjU4LjEyLjEwMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/';
-            break;
-        default:
-            return;
-    }
-    
-    try {
-        const audio = new Audio(soundUrl);
-        audio.volume = 0.5; // 볼륨 설정
-        audio.play().catch(e => {
-            console.warn('알림 소리 재생 실패:', e);
-            // 일부 브라우저는 사용자 상호작용 없이 소리 재생을 차단함
-        });
-    } catch (e) {
-        console.warn('알림 소리 재생 실패:', e);
-    }
+    // 이후 소리 기능 구현 시 주석 해제
+    // const audio = new Audio();
+    // audio.volume = 0.5;
+    // audio.src = './sounds/' + type + '.mp3';
+    // audio.play().catch(e => console.warn('알림 소리 재생 실패:', e));
 }
 
 /**
@@ -3145,7 +3123,7 @@ function handleAdminMessage(message) {
                 showToast('관리자 권한이 부여되었습니다.');
                 
                 // 시스템 메시지 표시
-                addSystemMessage('관리자 권한이 부여되었습니다.');
+                addSystemMessage('관리자 권한이 부여되었습니다');
             }
             
             // 대상 사용자 정보 업데이트
@@ -3156,7 +3134,7 @@ function handleAdminMessage(message) {
                 // 다른 사용자인 경우 시스템 메시지 표시
                 if (message.targetId !== appState.localUserId) {
                     const userName = appState.users[message.targetId].name;
-                    addSystemMessage(`${userName}님이 관리자가 되었습니다.`);
+                    addSystemMessage(`${userName}님이 관리자가 되었습니다`);
                 }
             }
             break;
@@ -3168,7 +3146,7 @@ function handleAdminMessage(message) {
                 showToast('관리자 권한이 제거되었습니다.');
                 
                 // 시스템 메시지 표시
-                addSystemMessage('관리자 권한이 제거되었습니다.');
+                addSystemMessage('관리자 권한이 제거되었습니다');
             }
             
             // 대상 사용자 정보 업데이트
@@ -3179,7 +3157,7 @@ function handleAdminMessage(message) {
                 // 다른 사용자인 경우 시스템 메시지 표시
                 if (message.targetId !== appState.localUserId) {
                     const userName = appState.users[message.targetId].name;
-                    addSystemMessage(`${userName}님의 관리자 권한이 제거되었습니다.`);
+                    addSystemMessage(`${userName}님의 관리자 권한이 제거되었습니다`);
                 }
             }
             break;
@@ -3225,7 +3203,7 @@ function handleAdminMessage(message) {
             } else if (appState.users[message.targetId]) {
                 // 다른 사용자가 차단된 경우
                 const userName = appState.users[message.targetId].name;
-                addSystemMessage(`${userName}님이 방에서 차단되었습니다.`);
+                addSystemMessage(`${userName}님이 방에서 차단되었습니다`);
             }
             break;
             
