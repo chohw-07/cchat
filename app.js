@@ -409,6 +409,7 @@ function setupPeerEvents() {
             
             // 시스템 메시지 추가
             addSystemMessage(`방이 생성되었습니다. 초대 코드: ${appState.roomId}`);
+            addSystemMessage('다른 사용자를 초대하려면 상단의 [초대하기] 버튼을 클릭하세요.');
         }
     });
     
@@ -434,17 +435,30 @@ function setupPeerEvents() {
                 userName: appState.localUserName
             });
             
-            // 현재 접속 중인 다른 사용자 정보 전송
-            Object.entries(appState.users).forEach(([userId, userName]) => {
-                if (userId !== appState.localUserId && userId !== conn.peer) {
-                    sendData(conn, {
-                        type: 'system',
-                        action: 'user_info',
-                        userId: userId,
-                        userName: userName
-                    });
-                }
-            });
+            // 현재 접속 중인 다른 사용자 정보 전송 (호스트만)
+            if (appState.isHost) {
+                Object.entries(appState.users).forEach(([userId, userName]) => {
+                    if (userId !== appState.localUserId && userId !== conn.peer) {
+                        sendData(conn, {
+                            type: 'system',
+                            action: 'user_info',
+                            userId: userId,
+                            userName: userName
+                        });
+                    }
+                });
+                
+                // 새 유저 연결 정보를 다른 모든 유저에게 알림
+                Object.entries(appState.connections).forEach(([peerId, peerConn]) => {
+                    if (peerId !== conn.peer) {
+                        sendData(peerConn, {
+                            type: 'system',
+                            action: 'new_peer_connected',
+                            userId: conn.peer
+                        });
+                    }
+                });
+            }
             
             // 자신이 호스트임을 알림
             if (appState.isHost) {
@@ -595,6 +609,12 @@ function updateConnectionStatus(text, status) {
 function handleReceivedMessage(message, fromPeerId) {
     console.log('메시지 수신:', message);
     
+    // 호스트인 경우, 다른 모든 피어에게 메시지 중계
+    if (appState.isHost && message.type !== 'system') {
+        // 메시지 중계: 발신자를 제외한 모든 피어에게 전달
+        relayMessageToAllPeers(message, fromPeerId);
+    }
+    
     switch (message.type) {
         case 'chat':
             // 채팅 메시지 표시
@@ -617,9 +637,30 @@ function handleReceivedMessage(message, fromPeerId) {
 }
 
 /**
+ * 호스트가 메시지를 다른 모든 피어에게 중계
+ */
+function relayMessageToAllPeers(message, senderPeerId) {
+    if (!appState.isHost) return; // 호스트만 중계 가능
+    
+    Object.entries(appState.connections).forEach(([peerId, conn]) => {
+        // 발신자에게는 다시 보내지 않음
+        if (peerId !== senderPeerId) {
+            sendData(conn, message);
+        }
+    });
+}
+
+/**
  * 시스템 메시지 처리
  */
 function handleSystemMessage(message, fromPeerId) {
+    // 호스트가 다른 모든 피어에게 시스템 메시지 중계 
+    // (일부 시스템 메시지는 중계할 필요가 있음)
+    if (appState.isHost && 
+        (message.action === 'user_info' || message.action === 'peer_disconnect')) {
+        relayMessageToAllPeers(message, fromPeerId);
+    }
+    
     switch (message.action) {
         case 'user_info':
             // 사용자 정보 업데이트
@@ -675,6 +716,8 @@ function handlePeerDisconnect(peerId) {
  * 파일 메시지 처리
  */
 function handleFileMessage(message, fromPeerId) {
+    // 호스트가 다른 모든 피어에게 파일 메시지 중계 (이미 handleReceivedMessage에서 처리)
+    
     switch (message.action) {
         case 'file_info':
             // 파일 정보 수신 (파일 전송 시작)
@@ -870,9 +913,23 @@ function handleFileSelection(e) {
  * 모든 연결에 메시지 브로드캐스트
  */
 function broadcastMessage(message) {
-    Object.values(appState.connections).forEach(conn => {
-        sendData(conn, message);
-    });
+    if (appState.isHost) {
+        // 호스트인 경우: 모든 연결된 피어에게 전송
+        Object.values(appState.connections).forEach(conn => {
+            sendData(conn, message);
+        });
+    } else {
+        // 일반 유저인 경우: 호스트에게만 전송 (호스트가 중계)
+        // 연결된 것 중 첫 번째가 호스트임 (첫 연결은 항상 호스트와의 연결)
+        const hostConn = Object.values(appState.connections)[0];
+        if (hostConn) {
+            sendData(hostConn, message);
+        } else {
+            console.warn('호스트와 연결되지 않았습니다. 메시지 전송 불가.');
+            // 연결이 없는 경우 큐에 저장
+            appState.pendingMessages.push(message);
+        }
+    }
 }
 
 /**
