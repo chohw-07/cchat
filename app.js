@@ -44,7 +44,7 @@ const ICE_SERVERS = [
     { urls: 'stun:stun.voipbuster.com' },
     { urls: 'stun:stun.voipstunt.com' },
     { urls: 'stun:stun.voxgratia.org' },
-    { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
     // 공개 TURN 서버 (실제 운영 시에는 자체 TURN 서버 사용 권장)
     {
         urls: 'turn:numb.viagenie.ca',
@@ -52,7 +52,7 @@ const ICE_SERVERS = [
         username: 'webrtc@live.com'
     },
     {
-        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+        urls: 'turn:turn.anyfirewall.com:443',
         credential: 'webrtc',
         username: 'webrtc'
     },
@@ -67,7 +67,7 @@ const ICE_SERVERS = [
         username: 'openrelayproject'
     },
     {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        urls: 'turn:openrelay.metered.ca:443',
         credential: 'openrelayproject',
         username: 'openrelayproject'
     }
@@ -1453,8 +1453,6 @@ function retryConnection(peerId) {
         appState.connections[peerId].close();
         delete appState.connections[peerId];
     }
-    
-    // 잠시 대기 후 재연결
     setTimeout(() => {
         // 새 연결 시도
         if (appState.peer && !appState.peer.disconnected) {
