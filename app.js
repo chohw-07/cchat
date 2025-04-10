@@ -298,6 +298,195 @@ function initializeApp() {
  * @param {string} lang - 언어 코드
  */
 function loadLanguage(lang) {
+    // 파일 시스템에서 실행 시 기본 언어 데이터 사용
+    if (window.location.protocol === 'file:') {
+        console.log('파일 시스템에서 실행 중 - 내장 언어 데이터 사용');
+        
+        // 한국어 기본 데이터
+        const koData = {
+            "welcome": "CCHAT 에 오신 것을 환영합니다",
+            "create_room": "방 만들기",
+            "join_room": "방 참여하기",
+            "enter_invite_code": "초대 코드 입력",
+            "join": "참여하기",
+            "user_name_setup": "사용자 이름 설정",
+            "enter_user_name": "사용자 이름 입력",
+            "channels": "채널",
+            "voice_channels": "음성 채널",
+            "online_users": "접속 중인 사용자",
+            "captcha_verification": "보안 확인",
+            "captcha_instruction": "아래에 표시된 문자를 입력하세요",
+            "verify": "확인",
+            "name_setup": "이름 설정",
+            "select_avatar": "프로필 이미지 선택",
+            "name": "이름",
+            "save_name": "저장",
+            "invite_friends": "친구 초대하기",
+            "invite_code": "초대 코드",
+            "copy_code": "코드 복사",
+            "invite_link": "초대 링크",
+            "copy_link": "링크 복사",
+            "connecting": "연결 중...",
+            "connection_error": "연결 오류",
+            "retry": "다시 시도",
+            "captcha_failed": "보안 확인에 실패했습니다",
+            "enter_message": "메시지 입력...",
+            "send": "전송",
+            "profile_settings": "프로필 설정",
+            "status": "상태",
+            "status_online": "온라인",
+            "status_away": "자리 비움",
+            "status_dnd": "방해 금지",
+            "status_offline": "오프라인",
+            "notification_settings": "알림 설정",
+            "desktop_notifications": "데스크톱 알림",
+            "sound_notifications": "알림 소리",
+            "notification_permission_required": "알림 권한이 필요합니다. 브라우저 설정에서 권한을 허용해주세요.",
+            "request_permission": "권한 요청",
+            "voice_settings": "음성 설정",
+            "noise_suppression": "잡음 제거",
+            "echo_cancellation": "에코 제거",
+            "language_settings": "언어 설정",
+            "language": "언어",
+            "theme_settings": "테마 설정",
+            "light_theme": "밝은 테마",
+            "save": "저장",
+            "admin_menu": "관리자 메뉴",
+            "user_management": "사용자 관리",
+            "channel_management": "채널 관리",
+            "channel_name": "채널 이름",
+            "add_channel": "채널 추가",
+            "voice_channel": "음성 채널",
+            "text_channel": "텍스트 채널",
+            "file_shared": "파일 공유: {name}",
+            "new_message": "새 메시지",
+            "host": "방장",
+            "admin": "관리자",
+            "user": "사용자",
+            "room": "방 #{room}",
+            "settings_saved": "설정이 저장되었습니다",
+            "language_changed": "언어가 변경되었습니다",
+            "transferred_ownership": "방장 권한을 {user}에게 이임했습니다",
+            "connection_lost": "연결이 끊겼습니다",
+            "waiting_users": "사용자 대기 중 ({count})",
+            "connected": "연결됨",
+            "connected_with_users": "연결됨 ({count}명)",
+            "room_created": "방이 생성되었습니다. 초대 코드: {code}",
+            "invite_instruction": "상단의 초대 버튼을 눌러 친구를 초대하세요",
+            "joined_room": "방에 참여했습니다: {room}",
+            "delete": "삭제",
+            "deleted_message": "삭제된 메시지",
+            "user_left": "{user}님이 퇴장했습니다",
+            "user_joined": "{user}님이 입장했습니다",
+            "webrtc_not_supported": "이 브라우저에서는 음성 채팅이 지원되지 않습니다",
+            "microphone_permission_error": "마이크 권한이 필요합니다",
+            "profile_saved": "프로필이 저장되었습니다",
+            "copied_invite_code": "초대 코드가 복사되었습니다",
+            "copied_invite_link": "초대 링크가 복사되었습니다",
+            "internet_connected": "인터넷 연결이 복구되었습니다",
+            "internet_disconnected": "인터넷 연결이 끊겼습니다",
+            "download": "다운로드"
+        };
+        
+        // 영어 기본 데이터
+        const enData = {
+            "welcome": "Welcome to CCHAT",
+            "create_room": "Create Room",
+            "join_room": "Join Room",
+            "enter_invite_code": "Enter invite code",
+            "join": "Join",
+            "user_name_setup": "User Name Setup",
+            "enter_user_name": "Enter user name",
+            "channels": "Channels",
+            "voice_channels": "Voice Channels",
+            "online_users": "Online Users",
+            "captcha_verification": "Security Verification",
+            "captcha_instruction": "Enter the characters shown below",
+            "verify": "Verify",
+            "name_setup": "Name Setup",
+            "select_avatar": "Select Profile Image",
+            "name": "Name",
+            "save_name": "Save",
+            "invite_friends": "Invite Friends",
+            "invite_code": "Invite Code",
+            "copy_code": "Copy Code",
+            "invite_link": "Invite Link",
+            "copy_link": "Copy Link",
+            "connecting": "Connecting...",
+            "connection_error": "Connection Error",
+            "retry": "Retry",
+            "captcha_failed": "Security verification failed",
+            "enter_message": "Enter message...",
+            "send": "Send",
+            "profile_settings": "Profile Settings",
+            "status": "Status",
+            "status_online": "Online",
+            "status_away": "Away",
+            "status_dnd": "Do Not Disturb",
+            "status_offline": "Offline",
+            "notification_settings": "Notification Settings",
+            "desktop_notifications": "Desktop Notifications",
+            "sound_notifications": "Sound Notifications",
+            "notification_permission_required": "Notification permission is required. Please enable it in your browser settings.",
+            "request_permission": "Request Permission",
+            "voice_settings": "Voice Settings",
+            "noise_suppression": "Noise Suppression",
+            "echo_cancellation": "Echo Cancellation",
+            "language_settings": "Language Settings",
+            "language": "Language",
+            "theme_settings": "Theme Settings",
+            "light_theme": "Light Theme",
+            "save": "Save",
+            "admin_menu": "Admin Menu",
+            "user_management": "User Management",
+            "channel_management": "Channel Management",
+            "channel_name": "Channel Name",
+            "add_channel": "Add Channel",
+            "voice_channel": "Voice Channel",
+            "text_channel": "Text Channel",
+            "file_shared": "File shared: {name}",
+            "new_message": "New message",
+            "host": "Host",
+            "admin": "Admin",
+            "user": "User",
+            "room": "Room #{room}",
+            "settings_saved": "Settings saved",
+            "language_changed": "Language changed",
+            "transferred_ownership": "Transferred ownership to {user}",
+            "connection_lost": "Connection lost",
+            "waiting_users": "Waiting for users ({count})",
+            "connected": "Connected",
+            "connected_with_users": "Connected with {count} users",
+            "room_created": "Room created. Invite code: {code}",
+            "invite_instruction": "Click the invite button to invite friends",
+            "joined_room": "Joined room: {room}",
+            "delete": "Delete",
+            "deleted_message": "Message deleted",
+            "user_left": "{user} has left",
+            "user_joined": "{user} has joined",
+            "webrtc_not_supported": "Voice chat is not supported in this browser",
+            "microphone_permission_error": "Microphone permission is required",
+            "profile_saved": "Profile saved",
+            "copied_invite_code": "Invite code copied",
+            "copied_invite_link": "Invite link copied",
+            "internet_connected": "Internet connection restored",
+            "internet_disconnected": "Internet connection lost",
+            "download": "Download"
+        };
+        
+        // 언어 선택에 따라 데이터 설정
+        if (lang === 'en') {
+            appState.translations = enData;
+        } else {
+            appState.translations = koData;
+        }
+        
+        // UI 언어 업데이트
+        updateUILanguage();
+        return; // 여기서 종료
+    }
+    
+    // 웹 서버에서 실행 시 일반적인 방법으로 언어 파일 로드
     fetch(`./lang/${lang}.json`)
         .then(response => response.json())
         .then(data => {
@@ -6938,7 +7127,12 @@ const LocalStorage = {
      */
     save: function(key, data) {
         try {
-            localStorage.setItem(key, JSON.stringify(data));
+            // 문자열 데이터인지 확인
+            if (typeof data === 'string') {
+                localStorage.setItem(key, data);
+            } else {
+                localStorage.setItem(key, JSON.stringify(data));
+            }
             return true;
         } catch (e) {
             console.error('로컬 스토리지 저장 오류:', e);
@@ -6955,7 +7149,15 @@ const LocalStorage = {
     load: function(key, defaultValue = null) {
         try {
             const data = localStorage.getItem(key);
-            return data ? JSON.parse(data) : defaultValue;
+            if (data === null) return defaultValue;
+            
+            // JSON 파싱 시도
+            try {
+                return JSON.parse(data);
+            } catch (e) {
+                // JSON 파싱 실패하면 그대로 문자열 반환
+                return data;
+            }
         } catch (e) {
             console.error('로컬 스토리지 불러오기 오류:', e);
             return defaultValue;
