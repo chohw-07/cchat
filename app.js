@@ -454,7 +454,14 @@ function closeAllModals() {
  * 이모지 피커 초기화
  */
 function initEmojiPicker() {
-    if (!UI.emojiGrid) return;
+    // 필요한 요소 확인
+    if (!UI.emojiGrid || !UI.emojiButton || !UI.emojiPicker) {
+        console.warn('이모지 피커 초기화 실패: UI 요소 없음');
+        return;
+    }
+    
+    // 기존 이벤트 제거 (중복 방지)
+    UI.emojiButton.removeEventListener('click', toggleEmojiPicker);
     
     // 이모지 그리드 생성
     UI.emojiGrid.innerHTML = '';
@@ -463,9 +470,11 @@ function initEmojiPicker() {
         emojiButton.className = 'emoji-item';
         emojiButton.textContent = emoji;
         emojiButton.title = DEFAULT_EMOJIS[emoji];
-        emojiButton.addEventListener('click', () => {
+        emojiButton.addEventListener('click', (e) => {
+            e.stopPropagation(); // 이벤트 버블링 방지
             if (UI.messageInput) {
                 insertTextAtCursor(UI.messageInput, emoji);
+                UI.messageInput.focus(); // 입력창에 포커스 유지
             }
             toggleEmojiPicker(false);
         });
@@ -473,21 +482,42 @@ function initEmojiPicker() {
     });
     
     // 이모지 버튼 이벤트
-    if (UI.emojiButton) {
-        UI.emojiButton.addEventListener('click', () => {
-            toggleEmojiPicker();
-        });
-    }
+    UI.emojiButton.addEventListener('click', (e) => {
+        e.stopPropagation(); // 이벤트 버블링 방지
+        toggleEmojiPicker();
+    });
     
     // 외부 클릭 시 피커 닫기
-    document.addEventListener('click', e => {
+    document.addEventListener('click', (e) => {
         if (UI.emojiPicker && !UI.emojiPicker.contains(e.target) && 
             UI.emojiButton && !UI.emojiButton.contains(e.target)) {
             toggleEmojiPicker(false);
         }
     });
+    
+    // 초기 상태는 닫혀있음
+    UI.emojiPicker.classList.add('hidden');
 }
-
+function toggleEmojiPicker(show) {
+    if (!UI.emojiPicker) return;
+    
+    // 이모지 피커 위치 업데이트 (입력창 위에 정확히 위치하도록)
+    if (UI.messageInput && UI.emojiButton) {
+        const buttonRect = UI.emojiButton.getBoundingClientRect();
+        UI.emojiPicker.style.bottom = '70px';
+        UI.emojiPicker.style.left = `${buttonRect.left}px`;
+    }
+    
+    if (show === undefined) {
+        UI.emojiPicker.classList.toggle('hidden');
+    } else {
+        if (show) {
+            UI.emojiPicker.classList.remove('hidden');
+        } else {
+            UI.emojiPicker.classList.add('hidden');
+        }
+    }
+}
 /**
  * 이모지 피커 토글
  * @param {boolean} show - 표시 여부
@@ -512,13 +542,18 @@ function toggleEmojiPicker(show) {
  * @param {string} text - 삽입할 텍스트
  */
 function insertTextAtCursor(input, text) {
-    const start = input.selectionStart;
-    const end = input.selectionEnd;
-    const value = input.value;
+    if (!input) return;
+    
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || 0;
+    const value = input.value || '';
     
     input.value = value.substring(0, start) + text + value.substring(end);
     input.selectionStart = input.selectionEnd = start + text.length;
-    input.focus();
+    
+    // 변경 이벤트 발생시켜 타이핑 상태 감지
+    const event = new Event('input', { bubbles: true });
+    input.dispatchEvent(event);
 }
 
 /**
