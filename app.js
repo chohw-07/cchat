@@ -44,11 +44,32 @@ const ICE_SERVERS = [
     { urls: 'stun:stun.voipbuster.com' },
     { urls: 'stun:stun.voipstunt.com' },
     { urls: 'stun:stun.voxgratia.org' },
+    { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
     // 공개 TURN 서버 (실제 운영 시에는 자체 TURN 서버 사용 권장)
     {
         urls: 'turn:numb.viagenie.ca',
         credential: 'muazkh',
         username: 'webrtc@live.com'
+    },
+    {
+        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+        credential: 'webrtc',
+        username: 'webrtc'
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:80',
+        credential: 'openrelayproject',
+        username: 'openrelayproject'
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443',
+        credential: 'openrelayproject',
+        username: 'openrelayproject'
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        credential: 'openrelayproject',
+        username: 'openrelayproject'
     }
 ];
 
@@ -1003,6 +1024,15 @@ function checkUrlForInviteCode() {
  * @param {string} inviteCode - 초대 코드
  */
 function handleDirectConnection(inviteCode) {
+    // 초대 코드가 유효한지 다시 한 번 확인
+    if (!inviteCode || !/^[a-z0-9]{4}$/i.test(inviteCode)) {
+        showToast(t('invalid_invite_code') || '유효하지 않은 초대 코드입니다.', 3000, 'error');
+        
+        // 초기 모달로 돌아가기
+        if (UI.entryModal) UI.entryModal.classList.remove('hidden');
+        return;
+    }
+
     // 연결 모달 표시
     showConnectionModal();
     updateConnectionStep(1, 'active');
@@ -1010,7 +1040,7 @@ function handleDirectConnection(inviteCode) {
     // CAPTCHA 인증 진행
     showCaptchaModal((captchaFailed) => {
         if (captchaFailed) {
-            handleConnectionError('CAPTCHA 인증에 실패했습니다.');
+            handleConnectionError(t('captcha_failed') || 'CAPTCHA 인증에 실패했습니다.');
             
             // 잠시 후 초기 모달로 돌아가기
             setTimeout(() => {
@@ -1020,14 +1050,74 @@ function handleDirectConnection(inviteCode) {
             return;
         }
         
-        // 이름 설정 모달 표시
-        showNameSetupModal(() => {
-            // 이름 설정 후 방 참여
+        // 사용자 이름이 이미 설정되어 있는지 확인
+        if (appState.localUserName && appState.localUserName !== `사용자${Math.floor(Math.random() * 1000)}`) {
+            // 이름이 이미 설정되어 있으면 바로 방 참여
             joinRoom(inviteCode);
-        });
+        } else {
+            // 이름 설정 모달 표시
+            showNameSetupModal(() => {
+                // 이름 설정 후 방 참여
+                joinRoom(inviteCode);
+            });
+        }
     });
 }
 
+/**
+ * 연결 핑 프로세스 시작 (연결 유지)
+ * @param {Object} connection - 피어 연결 객체
+ */
+function startPingProcess(connection) {
+    // 이미 핑 프로세스가 있으면 제거
+    if (connection.pingInterval) {
+        clearInterval(connection.pingInterval);
+    }
+    
+    // 30초마다 핑 메시지 전송
+    connection.pingInterval = setInterval(() => {
+        try {
+            // 연결이 여전히 유효한지 확인
+            if (connection.open) {
+                sendData(connection, { type: 'ping', timestamp: Date.now() });
+            } else {
+                // 연결이 닫혔다면 타이머 제거
+                clearInterval(connection.pingInterval);
+                delete connection.pingInterval;
+            }
+        } catch (e) {
+            console.warn('핑 전송 중 오류:', e);
+            // 오류 발생 시 타이머 제거
+            clearInterval(connection.pingInterval);
+            delete connection.pingInterval;
+        }
+    }, 30000);
+}
+// handleReceivedMessage 함수 상단에 추가
+// 핑 메시지 처리
+if (message.type === 'ping') {
+    // 핑에 대한 응답 전송
+    if (appState.connections[fromPeerId]) {
+        sendData(appState.connections[fromPeerId], { 
+            type: 'pong', 
+            timestamp: message.timestamp,
+            responseTime: Date.now() 
+        });
+    }
+    return; // 다른 처리 없이 종료
+}
+
+// 퐁 메시지 처리
+if (message.type === 'pong') {
+    // 핑-퐁 지연시간 계산 (연결 품질 모니터링용)
+    const latency = Date.now() - message.timestamp;
+    // 연결 통계에 저장
+    if (!appState.peerConnectionStats[fromPeerId]) {
+        appState.peerConnectionStats[fromPeerId] = {};
+    }
+    appState.peerConnectionStats[fromPeerId].latency = latency;
+    return; // 다른 처리 없이 종료
+}
 /**
  * 이벤트 리스너 설정
  */
@@ -1631,6 +1721,13 @@ function joinVoiceChannel(channelId) {
         
         console.log(`음성 채널 참여: ${channelId}`);
         
+        // WebRTC 지원 여부 확인
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showToast(t('webrtc_not_supported') || '음성 채팅이 지원되지 않는 브라우저입니다.', 3000, 'error');
+            console.error('WebRTC is not supported in this browser');
+            return;
+        }
+        
         // 마이크 권한 요청
         navigator.mediaDevices.getUserMedia({
             audio: {
@@ -1682,7 +1779,7 @@ function joinVoiceChannel(channelId) {
         })
         .catch(error => {
             console.error('마이크 권한 요청 중 오류:', error);
-            showToast(t('microphone_permission_error'), 0, 'error');
+            showToast(t('microphone_permission_error') || '마이크 권한이 필요합니다.', 0, 'error');
         });
     } catch (error) {
         console.error('보이스 채널 참여 중 오류:', error);
@@ -6369,7 +6466,7 @@ function updateUsersList() {
  * @return {string} 색상 코드
  */
 function getColorFromName(name) {
-    if (!name) return '#5865F2'; // 기본 색상
+    if (!name) return '#747F8D'; // 기본 색상
     
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
