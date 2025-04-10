@@ -1454,7 +1454,6 @@ if (message.type === 'pong') {
         appState.peerConnectionStats[fromPeerId] = {};
     }
     appState.peerConnectionStats[fromPeerId].latency = latency;
-    return; // 다른 처리 없이 종료
 }
 
 
