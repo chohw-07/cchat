@@ -1445,16 +1445,6 @@ function setupConnectionPing(conn) {
 }
 
 
-// 퐁 메시지 처리
-if (message.type === 'pong') {
-    // 핑-퐁 지연시간 계산 (연결 품질 모니터링용)
-    const latency = Date.now() - message.timestamp;
-    // 연결 통계에 저장
-    if (!appState.peerConnectionStats[fromPeerId]) {
-        appState.peerConnectionStats[fromPeerId] = {};
-    }
-    appState.peerConnectionStats[fromPeerId].latency = latency;
-}
 
 
 function retryConnection(peerId) {
