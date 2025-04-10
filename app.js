@@ -3727,29 +3727,15 @@ function handleReceivedMessage(message, fromPeerId) {
     try {
         console.log('메시지 수신:', message);
         
-        // 핑 메시지 처리 (함수 내부에 배치)
+        // 핑/퐁 메시지 특별 처리
         if (message.type === 'ping') {
-            // 핑에 대한 응답 전송
-            if (appState.connections[fromPeerId]) {
-                sendData(appState.connections[fromPeerId], { 
-                    type: 'pong', 
-                    timestamp: message.timestamp,
-                    responseTime: Date.now() 
-                });
-            }
-            return; // 함수 내부에서는 return 가능
+            handlePingMessage(message, fromPeerId);
+            return;
         }
-
-        // 퐁 메시지 처리
+        
         if (message.type === 'pong') {
-            // 핑-퐁 지연시간 계산 (연결 품질 모니터링용)
-            const latency = Date.now() - message.timestamp;
-            // 연결 통계에 저장
-            if (!appState.peerConnectionStats[fromPeerId]) {
-                appState.peerConnectionStats[fromPeerId] = {};
-            }
-            appState.peerConnectionStats[fromPeerId].latency = latency;
-            return; // 함수 내부에서는 return 가능
+            handlePongMessage(message, fromPeerId);
+            return;
         }
         
         // 호스트인 경우, 다른 모든 피어에게 메시지 중계
@@ -5797,7 +5783,47 @@ function handleChannelMessage(message) {
         console.error('채널 메시지 처리 중 오류:', error);
     }
 }
+function handlePingMessage(message, fromPeerId) {
+    // 핑에 대한 응답 전송
+    if (appState.connections[fromPeerId]) {
+        sendData(appState.connections[fromPeerId], { 
+            type: 'pong', 
+            timestamp: message.timestamp,
+            responseTime: Date.now() 
+        });
+    }
+}
 
+
+function handlePongMessage(message, fromPeerId) {
+    // 지연시간 계산
+    const latency = Date.now() - message.timestamp;
+    
+    // 연결 통계에 저장
+    if (!appState.peerConnectionStats[fromPeerId]) {
+        appState.peerConnectionStats[fromPeerId] = {};
+    }
+    
+    appState.peerConnectionStats[fromPeerId].latency = latency;
+    appState.peerConnectionStats[fromPeerId].lastPongTime = Date.now();
+    
+    // 연결 상태 로그 (디버깅용)
+    if (latency > 1000) {
+        console.warn(`피어 ${fromPeerId}와의 높은 지연시간 감지: ${latency}ms`);
+    }
+    
+    // 타임아웃이 설정되어 있으면 취소
+    if (appState.connections[fromPeerId] && 
+        appState.connections[fromPeerId].pongTimeout) {
+        clearTimeout(appState.connections[fromPeerId].pongTimeout);
+        delete appState.connections[fromPeerId].pongTimeout;
+    }
+    
+    // 누락된 핑 카운터 리셋
+    if (appState.peerConnectionStats[fromPeerId]) {
+        appState.peerConnectionStats[fromPeerId].missedPings = 0;
+    }
+}
 /**
  * 관리자 메시지 처리
  * @param {Object} message - 관리자 메시지
