@@ -51,7 +51,7 @@ const ICE_SERVERS = [
         username: 'webrtc@live.com'
     },
     {
-        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+        urls: 'turn:turn.anyfirewall.com:443',
         credential: 'webrtc',
         username: 'webrtc'
     },
@@ -66,7 +66,7 @@ const ICE_SERVERS = [
         username: 'openrelayproject'
     },
     {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        urls: 'turn:openrelay.metered.ca:443',
         credential: 'openrelayproject',
         username: 'openrelayproject'
     }
