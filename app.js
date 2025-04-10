@@ -44,15 +44,14 @@ const ICE_SERVERS = [
     { urls: 'stun:stun.voipbuster.com' },
     { urls: 'stun:stun.voipstunt.com' },
     { urls: 'stun:stun.voxgratia.org' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
-    // 공개 TURN 서버 (실제 운영 시에는 자체 TURN 서버 사용 권장)
+    { urls: 'stun:global.stun.twilio.com:3478' }, // ✅ 수정됨
     {
         urls: 'turn:numb.viagenie.ca',
         credential: 'muazkh',
         username: 'webrtc@live.com'
     },
     {
-        urls: 'turn:turn.anyfirewall.com:443',
+        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
         credential: 'webrtc',
         username: 'webrtc'
     },
@@ -67,11 +66,12 @@ const ICE_SERVERS = [
         username: 'openrelayproject'
     },
     {
-        urls: 'turn:openrelay.metered.ca:443',
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
         credential: 'openrelayproject',
         username: 'openrelayproject'
     }
 ];
+
 
 // 기본 이모지
 const DEFAULT_EMOJIS = {
