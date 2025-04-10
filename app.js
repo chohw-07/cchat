@@ -1,4 +1,87 @@
 /**
+ * P2P 메시 네트워크 구축 (모든 피어끼리 연결)
+ */
+function connectToPeer(peerId) {
+    // 이미 연결되어 있는 경우 건너뜀
+    if (appState.connections[peerId] || peerId === appState.localUserId) {
+        return;
+    }
+    
+    console.log('피어에 직접 연결 시도:', peerId);
+    
+    try {
+        const conn = appState.peer.connect(peerId, {
+            reliable: true
+        });
+        
+        conn.on('open', () => {
+            console.log('피어에 직접 연결됨:', peerId);
+            
+            // 연결 정보 저장
+            appState.connections[peerId] = conn;
+            
+            // 데이터 리스너 설정
+            conn.on('data', (data) => {
+                handleReceivedMessage(data, peerId);
+            });
+            
+            // 자신의 정보 전송
+            sendData(conn, {
+                type: 'system',
+                action: 'user_info',
+                userId: appState.localUserId,
+                userName: appState.localUserName
+            });
+            
+            // 연결 상태 업데이트
+            updateConnectionStatusFromPeers();
+        });
+        
+        conn.on('close', () => {
+            console.log('피어 직접 연결 종료:', peerId);
+            
+            // 호스트가 아니고, 연결이 호스트였던 경우에만 특별 처리
+            if (!appState.isHost && peerId === appState.roomId) {
+                handleHostDisconnect();
+            } else {
+                handlePeerDisconnect(peerId);
+            }
+        });
+        
+        conn.on('error', (err) => {
+            console.error('피어 직접 연결 오류:', err);
+        });
+    } catch (err) {
+        console.error('피어 직접 연결 시도 중 예외 발생:', err);
+    }
+}/**
+ * 연결 상태 업데이트
+ */
+function updateConnectionStatusFromPeers() {
+    const connections = Object.keys(appState.connections).length;
+    
+    if (connections === 0) {
+        if (appState.isHost) {
+            updateConnectionStatus('대기 중 (0명)', 'waiting');
+        } else {
+            updateConnectionStatus('연결 끊김', 'disconnected');
+        }
+    } else {
+        updateConnectionStatus(`연결됨 (${connections}명)`, 'connected');
+    }
+}/**
+ * 호스트 연결 종료 감지 및 처리
+ */
+function handleHostDisconnect() {
+    showToast('호스트와의 연결이 끊어졌습니다. 메인 화면으로 이동합니다.', 5000);
+    
+    // 3초 후 페이지 리로드
+    setTimeout(() => {
+        // 연결 리셋 및 URL 해시 제거
+        window.location.hash = '';
+        window.location.reload();
+    }, 3000);
+}/**
  * cchat - 서버 없는 P2P 채팅 애플리케이션
  * PeerJS 라이브러리를 사용하여 브라우저 간 직접 통신
  */
@@ -90,18 +173,11 @@ function initializeApp() {
  */
 function checkUrlForInviteCode() {
     try {
-        // 로컬 파일 시스템에서 실행 중인 경우
-        if (window.location.protocol === 'file:') {
-            // URL에서 초대 코드 감지 안함
-            console.log('로컬 환경에서는 URL에서 초대 코드를 자동으로 감지하지 않습니다.');
-            return;
-        }
-        
-        // 웹 서버에서 실행 중인 경우
-        const pathName = window.location.pathname;
-        if (pathName && pathName.length > 1) {
-            // URL 경로에서 첫 번째 '/' 이후의 문자열을 초대 코드로 사용
-            const inviteCode = pathName.substring(1);
+        // URL 해시에서 초대 코드 추출 (#으로 시작하는 부분)
+        const hash = window.location.hash;
+        if (hash && hash.length > 1) {
+            // # 이후의 문자열을 초대 코드로 사용
+            const inviteCode = hash.substring(1);
             
             // 초대 코드 검증 (4자리 영숫자만 허용)
             if (/^[a-z0-9]{4}$/i.test(inviteCode)) {
@@ -352,43 +428,68 @@ function joinRoom(roomId) {
 function connectToHost(hostId) {
     console.log('호스트에 연결 시도:', hostId);
     
-    const conn = appState.peer.connect(hostId, {
-        reliable: true
-    });
+    // 피어ID가 존재하는지 확인
+    if (!appState.localUserId) {
+        console.error('로컬 피어 ID가 설정되지 않았습니다.');
+        handleConnectionError('연결 초기화 오류. 다시 시도해주세요.');
+        return;
+    }
     
-    conn.on('open', () => {
-        console.log('호스트에 연결됨');
-        updateConnectionStep(2, 'complete');
-        updateConnectionStep(3, 'active');
-        
-        // 연결 정보 저장
-        appState.connections[hostId] = conn;
-        
-        // 자신의 정보 전송
-        sendData(conn, {
-            type: 'system',
-            action: 'user_info',
-            userId: appState.localUserId,
-            userName: appState.localUserName
+    try {
+        const conn = appState.peer.connect(hostId, {
+            reliable: true
         });
         
-        // 연결 성공 처리
-        onConnectionSuccess();
-    });
-    
-    conn.on('data', (data) => {
-        handleReceivedMessage(data, hostId);
-    });
-    
-    conn.on('close', () => {
-        console.log('호스트 연결 종료');
-        handlePeerDisconnect(hostId);
-    });
-    
-    conn.on('error', (err) => {
-        console.error('호스트 연결 오류:', err);
-        handleConnectionError('호스트 연결 중 오류가 발생했습니다.');
-    });
+        // 연결 시간 초과 처리
+        const connectionTimeout = setTimeout(() => {
+            if (!appState.connections[hostId]) {
+                console.error('호스트 연결 시간 초과');
+                handleConnectionError('호스트 연결 시간이 초과되었습니다. 초대 코드를 다시 확인해주세요.');
+            }
+        }, 10000); // 10초 타임아웃
+        
+        conn.on('open', () => {
+            console.log('호스트에 연결됨');
+            clearTimeout(connectionTimeout); // 타임아웃 취소
+            
+            updateConnectionStep(2, 'complete');
+            updateConnectionStep(3, 'active');
+            
+            // 연결 정보 저장
+            appState.connections[hostId] = conn;
+            
+            // 자신의 정보 전송
+            sendData(conn, {
+                type: 'system',
+                action: 'user_info',
+                userId: appState.localUserId,
+                userName: appState.localUserName
+            });
+            
+            // 연결 성공 처리
+            onConnectionSuccess();
+            
+            // 연결 상태 업데이트
+            updateConnectionStatusFromPeers();
+        });
+        
+        conn.on('data', (data) => {
+            handleReceivedMessage(data, hostId);
+        });
+        
+        conn.on('close', () => {
+            console.log('호스트 연결 종료');
+            handlePeerDisconnect(hostId);
+        });
+        
+        conn.on('error', (err) => {
+            console.error('호스트 연결 오류:', err);
+            handleConnectionError('호스트 연결 중 오류가 발생했습니다.');
+        });
+    } catch (err) {
+        console.error('호스트 연결 시도 중 예외 발생:', err);
+        handleConnectionError('연결 시도 중 오류가 발생했습니다.');
+    }
 }
 
 /**
@@ -673,6 +774,12 @@ function handleSystemMessage(message, fromPeerId) {
             // 새 사용자 안내 메시지
             if (isNewUser && message.userId !== appState.localUserId) {
                 addSystemMessage(`${message.userName}님이 입장했습니다.`);
+                
+                // 호스트가 아니고, 새로운 유저가 호스트가 아닌 경우
+                // 메시 네트워크를 구축하기 위해 직접 연결 시도
+                if (!appState.isHost && message.userId !== appState.roomId) {
+                    connectToPeer(message.userId);
+                }
             }
             break;
             
@@ -686,6 +793,14 @@ function handleSystemMessage(message, fromPeerId) {
             if (message.isHost && message.userId !== appState.localUserId) {
                 console.log(`${message.userId}가 호스트입니다.`);
                 // 호스트 정보를 저장할 수 있음
+            }
+            break;
+            
+        case 'new_peer_connected':
+            // 새 피어 연결 알림 (메시 네트워크 구축용)
+            if (!appState.isHost && message.userId !== appState.localUserId) {
+                console.log('새 피어 연결 알림:', message.userId);
+                connectToPeer(message.userId);
             }
             break;
             
@@ -708,8 +823,19 @@ function handlePeerDisconnect(peerId) {
         const userName = appState.users[peerId];
         delete appState.users[peerId];
         updateUsersList();
+        
+        // 호스트가 아닌 경우, 호스트와의 연결 종료 감지
+        if (!appState.isHost && Object.keys(appState.connections).length === 0) {
+            handleHostDisconnect();
+            return;
+        }
+        
+        // 퇴장 메시지 표시
         addSystemMessage(`${userName}님이 퇴장했습니다.`);
     }
+    
+    // 연결 상태 업데이트
+    updateConnectionStatusFromPeers();
 }
 
 /**
@@ -789,6 +915,12 @@ function sendChatMessage() {
     const messageText = UI.messageInput.value.trim();
     if (!messageText) return;
     
+    // 연결이 없는 경우 처리
+    if (Object.keys(appState.connections).length === 0) {
+        showToast('현재 연결된 사용자가 없습니다. 메시지를 전송할 수 없습니다.');
+        return;
+    }
+    
     const chatMessage = {
         type: 'chat',
         content: messageText,
@@ -796,14 +928,19 @@ function sendChatMessage() {
         timestamp: Date.now()
     };
     
-    // 메시지를 모든 피어에게 전송
-    broadcastMessage(chatMessage);
-    
-    // 자신의 메시지 표시
-    addChatMessage(appState.localUserName, messageText, chatMessage.timestamp);
-    
-    // 입력 필드 초기화
-    UI.messageInput.value = '';
+    try {
+        // 메시지를 모든 피어에게 전송
+        broadcastMessage(chatMessage);
+        
+        // 자신의 메시지 표시
+        addChatMessage(appState.localUserName, messageText, chatMessage.timestamp);
+        
+        // 입력 필드 초기화
+        UI.messageInput.value = '';
+    } catch (err) {
+        console.error('메시지 전송 중 오류:', err);
+        showToast('메시지 전송에 실패했습니다. 연결 상태를 확인해주세요.');
+    }
 }
 
 /**
@@ -959,9 +1096,9 @@ function showInviteModal() {
     let inviteLink;
     if (window.location.protocol === 'file:') {
         // 로컬 파일 실행 시 도메인 부분은 고정 값 사용
-        inviteLink = `${DOMAIN}/${appState.roomId}`;
+        inviteLink = `${DOMAIN}/#${appState.roomId}`;
     } else {
-        inviteLink = `${window.location.origin}/${appState.roomId}`;
+        inviteLink = `${window.location.origin}/#${appState.roomId}`;
     }
     UI.inviteLink.textContent = inviteLink;
     
@@ -995,7 +1132,7 @@ function updateUrlWithRoomId(roomId) {
     try {
         // 로컬 파일에서 실행 여부 확인 (file:// 프로토콜)
         if (window.location.protocol !== 'file:') {
-            const newUrl = `${window.location.origin}/${roomId}`;
+            const newUrl = `${window.location.origin}/#${roomId}`;
             window.history.pushState({ roomId }, '', newUrl);
         } else {
             console.log('로컬 환경에서는 URL 업데이트가 불가능합니다.');
@@ -1243,7 +1380,7 @@ function scrollToBottom() {
 /**
  * 유틸리티 함수: 토스트 메시지 표시
  */
-function showToast(message) {
+function showToast(message, duration = 3000) {
     // 기존 토스트 제거
     const existingToast = document.querySelector('.toast');
     if (existingToast) {
@@ -1265,6 +1402,13 @@ function showToast(message) {
     toast.style.padding = '10px 20px';
     toast.style.borderRadius = '5px';
     toast.style.zIndex = '1000';
+    toast.style.textAlign = 'center';
+    toast.style.minWidth = '200px';
+    toast.style.maxWidth = '80%';
+    toast.style.boxShadow = '0 3px 10px rgba(0, 0, 0, 0.3)';
+    
+    // 애니메이션 효과
+    toast.style.animation = 'fadeIn 0.3s, fadeOut 0.3s ' + (duration / 1000 - 0.3) + 's';
     
     // 문서에 추가
     document.body.appendChild(toast);
@@ -1274,7 +1418,24 @@ function showToast(message) {
         if (document.body.contains(toast)) {
             document.body.removeChild(toast);
         }
-    }, 3000);
+    }, duration);
+    
+    // 애니메이션 키프레임 추가
+    if (!document.getElementById('toastAnimations')) {
+        const style = document.createElement('style');
+        style.id = 'toastAnimations';
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translate(-50%, 20px); }
+                to { opacity: 1; transform: translate(-50%, 0); }
+            }
+            @keyframes fadeOut {
+                from { opacity: 1; transform: translate(-50%, 0); }
+                to { opacity: 0; transform: translate(-50%, 20px); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
 }
 
 // 앱 초기화
