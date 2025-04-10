@@ -1,0 +1,635 @@
+:root {
+    --primary-color: #5865F2;
+    --secondary-color: #3BA55C;
+    --dark-bg: #36393F;
+    --darker-bg: #2F3136;
+    --darkest-bg: #202225;
+    --light-text: #FFFFFF;
+    --gray-text: #B9BBBE;
+    --light-gray-bg: #40444B;
+    --border-radius: 5px;
+    --transition-speed: 0.2s;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+
+body {
+    background-color: var(--dark-bg);
+    color: var(--light-text);
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app-container {
+    display: flex;
+    height: 100vh;
+}
+
+/* 좌측 채널 패널 */
+.channels-panel {
+    width: 240px;
+    background-color: var(--darker-bg);
+    display: flex;
+    flex-direction: column;
+}
+
+.app-logo {
+    padding: 16px;
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--light-text);
+    background-color: var(--darkest-bg);
+}
+
+.channels-header {
+    padding: 16px;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--gray-text);
+    font-weight: bold;
+}
+
+.channels-list {
+    flex: 1;
+    padding: 0 8px;
+    overflow-y: auto;
+}
+
+.channel {
+    padding: 8px 12px;
+    margin: 2px 0;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background-color var(--transition-speed);
+}
+
+.channel:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.channel.active {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background-color: var(--darkest-bg);
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    margin-right: 10px;
+}
+
+.user-name {
+    font-weight: 500;
+}
+
+/* 중앙 콘텐츠 영역 */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--dark-bg);
+    position: relative;
+}
+
+/* 설정 화면 */
+.setup-screen {
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+}
+
+.setup-screen h2 {
+    margin-bottom: 30px;
+    font-size: 28px;
+}
+
+.setup-options {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+.setup-option {
+    background-color: var(--darker-bg);
+    padding: 20px;
+    border-radius: var(--border-radius);
+    width: 300px;
+}
+
+.setup-option h3 {
+    margin-bottom: 20px;
+}
+
+.primary-button, .secondary-button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color var(--transition-speed);
+    margin: 5px 0;
+}
+
+.primary-button {
+    background-color: var(--primary-color);
+    color: white;
+    width: 100%;
+}
+
+.primary-button:hover {
+    background-color: #4752c4;
+}
+
+.secondary-button {
+    background-color: var(--light-gray-bg);
+    color: white;
+}
+
+.secondary-button:hover {
+    background-color: #36393f;
+}
+
+.invite-code-container {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.invite-code {
+    background-color: var(--light-gray-bg);
+    padding: 10px;
+    border-radius: var(--border-radius);
+    font-family: monospace;
+    font-size: 18px;
+    margin: 10px 0;
+    width: 100%;
+    word-break: break-all;
+}
+
+.qr-container {
+    margin-top: 20px;
+    display: flex;
+    justify-content: center;
+}
+
+.join-form {
+    display: flex;
+    flex-direction: column;
+}
+
+.join-form input {
+    padding: 10px;
+    margin-bottom: 10px;
+    border: none;
+    border-radius: var(--border-radius);
+    background-color: var(--light-gray-bg);
+    color: white;
+}
+
+.name-setup {
+    background-color: var(--darker-bg);
+    padding: 20px;
+    border-radius: var(--border-radius);
+    width: 300px;
+    margin-top: 20px;
+}
+
+.name-setup input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: none;
+    border-radius: var(--border-radius);
+    background-color: var(--light-gray-bg);
+    color: white;
+}
+
+/* 채팅 화면 */
+.chat-screen {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.chat-header {
+    padding: 15px;
+    background-color: var(--dark-bg);
+    border-bottom: 1px solid var(--darker-bg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.connection-status {
+    font-size: 12px;
+    color: var(--gray-text);
+    display: flex;
+    align-items: center;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+.message {
+    margin-bottom: 15px;
+    display: flex;
+}
+
+.message-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.message-content {
+    flex: 1;
+}
+
+.message-header {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 5px;
+}
+
+.message-author {
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.message-time {
+    font-size: 12px;
+    color: var(--gray-text);
+}
+
+.message-text {
+    line-height: 1.4;
+}
+
+.chat-input-area {
+    padding: 15px;
+    display: flex;
+    background-color: var(--darker-bg);
+}
+
+.file-upload {
+    margin-right: 10px;
+}
+
+.file-upload-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background-color: var(--light-gray-bg);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 24px;
+}
+
+.chat-input-area input {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: var(--border-radius);
+    background-color: var(--light-gray-bg);
+    color: white;
+    margin-right: 10px;
+}
+
+.chat-input-area button {
+    padding: 0 15px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+}
+
+/* 우측 사용자 패널 */
+.users-panel {
+    width: 240px;
+    background-color: var(--darker-bg);
+    display: flex;
+    flex-direction: column;
+}
+
+.users-header {
+    padding: 16px;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--gray-text);
+    font-weight: bold;
+}
+
+.users-list {
+    flex: 1;
+    padding: 0 16px;
+    overflow-y: auto;
+}
+
+.user-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+}
+
+.user-item-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    margin-right: 10px;
+}
+
+.user-item-name {
+    font-weight: 500;
+}
+
+/* 모달 스타일 */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-container {
+    background-color: var(--darker-bg);
+    border-radius: var(--border-radius);
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 15px;
+    background-color: var(--darkest-bg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.close-modal {
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--gray-text);
+}
+
+.modal-content {
+    padding: 20px;
+}
+
+.invite-info {
+    margin-bottom: 20px;
+}
+
+.invite-info h3 {
+    margin-bottom: 10px;
+}
+
+.invite-button {
+    padding: 8px 15px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.connection-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.connection-step {
+    display: flex;
+    align-items: center;
+}
+
+.step-number {
+    width: 30px;
+    height: 30px;
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-title {
+    margin-bottom: 5px;
+}
+
+.step-progress {
+    height: 4px;
+    background-color: var(--light-gray-bg);
+    border-radius: 2px;
+}
+
+.loader {
+    height: 100%;
+    width: 0%;
+    background-color: var(--primary-color);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.connection-step.active .loader {
+    width: 100%;
+    animation: progress 2s ease-in-out;
+}
+
+.connection-step.complete .loader {
+    width: 100%;
+    background-color: var(--secondary-color);
+}
+
+.connection-step.error .loader {
+    width: 100%;
+    background-color: #ED4245;
+}
+
+.connection-error {
+    text-align: center;
+    padding: 15px;
+    color: #ED4245;
+}
+
+.error-icon {
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.error-message {
+    margin-bottom: 15px;
+}
+
+@keyframes progress {
+    0% { width: 0%; }
+    100% { width: 100%; }
+}
+
+/* 유틸리티 클래스 */
+.hidden {
+    display: none !important;
+}
+
+.file-message {
+    background-color: var(--light-gray-bg);
+    padding: 10px;
+    border-radius: var(--border-radius);
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+}
+
+.file-icon {
+    margin-right: 10px;
+    font-size: 24px;
+}
+
+.file-info {
+    flex: 1;
+}
+
+.file-name {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.file-size {
+    font-size: 12px;
+    color: var(--gray-text);
+}
+
+.file-download {
+    background-color: var(--secondary-color);
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+}
+
+.image-preview {
+    max-width: 300px;
+    max-height: 200px;
+    border-radius: var(--border-radius);
+    margin-top: 5px;
+    cursor: pointer;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+
+    .channels-panel, .users-panel {
+        width: 100%;
+        height: auto;
+    }
+
+    .users-panel {
+        max-height: 200px;
+    }
+
+    .setup-options {
+        flex-direction: column;
+    }
+}
+
+/* 시스템 메시지 */
+.system-message {
+    text-align: center;
+    color: var(--gray-text);
+    margin: 10px 0;
+    font-style: italic;
+}
+
+/* 로딩 애니메이션 */
+.loading {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 1s ease-in-out infinite;
+    margin-left: 10px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 접속 상태 표시 */
+.connection-status.connected {
+    color: var(--secondary-color);
+}
+
+.connection-status.disconnected {
+    color: #ED4245;
+}
+
+/* 파일 전송 진행 표시 */
+.progress-bar {
+    height: 5px;
+    background-color: var(--primary-color);
+    border-radius: var(--border-radius);
+    transition: width 0.3s ease;
+}
+
+.progress-container {
+    width: 100%;
+    height: 5px;
+    background-color: var(--light-gray-bg);
+    border-radius: var(--border-radius);
+    margin-top: 5px;
+}
