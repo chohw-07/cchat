@@ -35,16 +35,20 @@
     </div>
 
     <div class="app-container">
-        <!-- 좌측: 채널 목록 -->
+        <!-- 채널 목록 -->
         <div class="channels-panel">
             <div class="app-logo">cchat</div>
-            <div class="channels-header">채널</div>
+            <div class="channels-header">
+                <span>채널</span>
+                <span id="addChannelIcon" class="add-icon">+</span>
+            </div>
             <div class="channels-list" id="channelsList">
-                <div class="channel active">일반</div>
+                <div class="channel active" data-channel="general">일반</div>
             </div>
             <div class="user-info" id="userInfo">
-                <div class="user-avatar"></div>
+                <div class="user-avatar" id="userAvatar"></div>
                 <div class="user-name" id="userName">사용자</div>
+                <div class="user-menu-icon">⚙️</div>
             </div>
         </div>
 
@@ -134,6 +138,92 @@
                     <div class="error-message">연결 중 오류가 발생했습니다.</div>
                     <button id="retryConnectionBtn" class="primary-button">다시 시도</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 프로필 모달 -->
+    <div class="modal-overlay hidden" id="profileModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>프로필 설정</h2>
+                <span class="close-modal" id="closeProfileModal">&times;</span>
+            </div>
+            <div class="modal-content">
+                <div class="profile-section">
+                    <div class="avatar-selector">
+                        <div class="current-avatar" id="currentAvatar"></div>
+                        <button id="changeAvatarBtn" class="secondary-button">이미지 변경</button>
+                        <input type="file" id="avatarInput" accept="image/*" class="hidden">
+                    </div>
+                    <div class="profile-name">
+                        <label for="profileNameInput">이름</label>
+                        <input type="text" id="profileNameInput" placeholder="사용자 이름 입력">
+                    </div>
+                </div>
+                <div class="notification-settings">
+                    <h3>알림 설정</h3>
+                    <div class="setting-row">
+                        <label for="notificationToggle">데스크톱 알림</label>
+                        <label class="switch">
+                            <input type="checkbox" id="notificationToggle" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="notification-permission-info hidden" id="notificationPermissionInfo">
+                        <p>알림 권한이 필요합니다. 브라우저 설정에서 권한을 허용해주세요.</p>
+                        <button id="requestPermissionBtn" class="secondary-button">권한 요청</button>
+                    </div>
+                </div>
+                <button id="saveProfileBtn" class="primary-button">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 관리자 모달 -->
+    <div class="modal-overlay hidden" id="adminModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>관리자 메뉴</h2>
+                <span class="close-modal" id="closeAdminModal">&times;</span>
+            </div>
+            <div class="modal-content">
+                <div class="admin-section">
+                    <h3>사용자 관리</h3>
+                    <div class="admin-user-list" id="adminUserList">
+                        <!-- 사용자 목록이 여기에 동적으로 표시됨 -->
+                    </div>
+                </div>
+                <div class="admin-section">
+                    <h3>채널 관리</h3>
+                    <div class="admin-channel-list" id="adminChannelList">
+                        <!-- 채널 목록이 여기에 동적으로 표시됨 -->
+                    </div>
+                    <div class="add-channel">
+                        <input type="text" id="newChannelInput" placeholder="새 채널 이름">
+                        <button id="addChannelBtn" class="secondary-button">채널 추가</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 사용자 관리 모달 -->
+    <div class="modal-overlay hidden" id="userManageModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 id="managedUserName">사용자 관리</h2>
+                <span class="close-modal" id="closeUserManageModal">&times;</span>
+            </div>
+            <div class="modal-content">
+                <div class="user-manage-options">
+                    <button id="giveAdminBtn" class="admin-action-btn">관리자 권한 부여</button>
+                    <button id="removeAdminBtn" class="admin-action-btn">관리자 권한 제거</button>
+                    <button id="timeoutUserBtn" class="admin-action-btn">타임아웃 (5분)</button>
+                    <button id="kickUserBtn" class="admin-action-btn warning">강퇴</button>
+                    <button id="banUserBtn" class="admin-action-btn danger">차단</button>
+                </div>
+                <div id="userManageInfo" class="user-manage-info"></div>
             </div>
         </div>
     </div>
