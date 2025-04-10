@@ -1750,3 +1750,31 @@ input:checked + .slider:before {
         height: 32px;
     }
 }
+#userNameModalInput, #joinCodeModalInput {
+    padding: 12px 16px;
+    border: none;
+    border-radius: 5px;
+    background-color: var(--light-gray-bg);
+    color: var(--text-normal);
+    width: 100%;
+    font-size: 14px;
+    margin: 10px 0;
+    box-shadow: none;
+    transition: background-color 0.2s;
+}
+
+#userNameModalInput:focus, #joinCodeModalInput:focus {
+    outline: none;
+    background-color: var(--dark-bg);
+}
+
+.join-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.join-form button {
+    align-self: flex-end;
+}
