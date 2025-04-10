@@ -3,18 +3,34 @@
  * PeerJS 라이브러리를 사용하여 브라우저 간 직접 통신
  * 
  * 주요 개선 사항:
- * 1. 버그 수정 (updateAvatarDisplay 함수 추가 등)
- * 2. 원격 통신 개선 (STUN/TURN 서버 추가)
- * 3. 메시지 삭제 기능 추가
- * 4. 채널 관리 UI 개선
- * 5. 사용자 상태 표시 기능
- * 6. 문자열 오류 수정 및 예외 처리 강화
+ * 1. 디스코드스러운 UI/UX 개선
+ * 2. 보이스 채팅 기능 추가
+ * 3. 간단한 CAPTCHA 추가
+ * 4. URL 링크 통한 직접 연결 개선
+ * 5. 이미지 및 미디어 처리 개선
+ * 6. 언어 지원 및 단축키 추가
+ * 7. 방장 이임 기능 구현
  */
 
 // 상수 정의
 const APP_NAME = 'cchat';
 const DOMAIN = 'cchat.kro.kr';
-const MAX_RETRY_COUNT = 5; // 재시도 횟수 증가
+const APP_VERSION = '2.0.0';
+const MAX_RETRY_COUNT = 5;
+const LOCALE_DEFAULT = 'ko'; // 기본 언어 설정
+const AUDIO_PATH = './sounds/'; // 효과음 디렉토리 경로
+
+// 효과음 정의
+const SOUNDS = {
+    MESSAGE: 'message.mp3',
+    CONNECT: 'connect.mp3',
+    DISCONNECT: 'disconnect.mp3',
+    ERROR: 'error.mp3',
+    VOICE_JOIN: 'voice_join.mp3',
+    VOICE_LEAVE: 'voice_leave.mp3'
+};
+
+// ICE 서버 설정 개선 (STUN/TURN 서버 추가)
 const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -36,10 +52,34 @@ const ICE_SERVERS = [
     }
 ];
 
+// 기본 이모지
+const DEFAULT_EMOJIS = {
+    "😀": "grinning face",
+    "😃": "grinning face with big eyes",
+    "😄": "grinning face with smiling eyes",
+    "😁": "beaming face with smiling eyes",
+    "😆": "grinning squinting face",
+    "😅": "grinning face with sweat",
+    "🤣": "rolling on the floor laughing",
+    "😂": "face with tears of joy",
+    "🙂": "slightly smiling face",
+    "🙃": "upside-down face",
+    "❤️": "red heart",
+    "👍": "thumbs up",
+    "👎": "thumbs down",
+    "👏": "clapping hands",
+    "🔥": "fire",
+    "🎉": "party popper",
+    "👀": "eyes"
+};
+
 // 애플리케이션 상태
 const appState = {
+    // 기존 상태 변수들
     peer: null,                 // PeerJS 인스턴스
-    connections: {},            // 연결된 피어들
+    connections: {},            // 연결된 피어들 (데이터 채널)
+    voiceConnections: {},       // 음성 연결 (미디어 채널)
+    localStream: null,          // 로컬 오디오 스트림
     localUserId: null,          // 로컬 사용자 ID
     localUserName: null,        // 로컬 사용자 이름
     localUserAvatar: null,      // 로컬 사용자 프로필 이미지
@@ -56,9 +96,13 @@ const appState = {
     fileChunks: {},             // 파일 청크 저장소
     connectionRetryCount: 0,    // 연결 재시도 횟수
     channels: {                 // 채널 목록
-        'general': { name: '일반', messages: [] }
+        'general': { name: '일반', messages: [], type: 'text' }
+    },
+    voiceChannels: {            // 음성 채널 목록
+        'voice-general': { name: '일반 음성채팅', users: [], type: 'voice' }
     },
     currentChannel: 'general',  // 현재 채널
+    currentVoiceChannel: null,  // 현재 연결된 음성 채널
     notifications: {            // 알림 설정
         enabled: true,          // 알림 활성화 여부
         permission: null,       // 알림 권한 상태
@@ -68,10 +112,27 @@ const appState = {
     typing: {                   // 타이핑 상태
         users: {},              // 타이핑 중인 사용자
         timeout: null,          // 타이핑 타임아웃
-        isTyping: false         // 현재 타이핑 중인지 여부 (추가)
+        isTyping: false         // 현재 타이핑 중인지 여부
     },
     peerConnectionStats: {},    // 피어 연결 상태 통계
-    connectionEstablished: false // 연결 설정 완료 여부
+    connectionEstablished: false, // 연결 설정 완료 여부
+    language: LOCALE_DEFAULT,   // 현재 언어 설정
+    translations: {},           // 번역 데이터
+    noiseSuppression: true,     // 잡음 제거 기능 활성화 여부
+    echoCancellation: true,     // 에코 제거 기능 활성화 여부
+    captchaVerified: false,     // CAPTCHA 검증 여부
+    shortcuts: {                // 키보드 단축키
+        active: true,
+        keybinds: {
+            'Escape': 'closeModals',
+            'Alt+M': 'toggleMute',
+            'Alt+D': 'toggleDeafen',
+            'Alt+S': 'openSettings',
+            'Alt+U': 'openUserList',
+            'Alt+C': 'openChannelList',
+            'Alt+V': 'toggleVoice'
+        }
+    }
 };
 
 /**
@@ -84,6 +145,17 @@ const UI = {
     joinRoomModalBtn: document.getElementById('joinRoomModalBtn'),
     joinCodeModalInput: document.getElementById('joinCodeModalInput'),
     userNameModalInput: document.getElementById('userNameModalInput'),
+    
+    captchaModal: document.getElementById('captchaModal'),
+    captchaImage: document.getElementById('captchaImage'),
+    captchaInput: document.getElementById('captchaInput'),
+    verifyCaptchaBtn: document.getElementById('verifyCaptchaBtn'),
+    
+    nameSetupModal: document.getElementById('nameSetupModal'),
+    nameSetupInput: document.getElementById('nameSetupInput'),
+    nameSetupAvatarPreview: document.getElementById('nameSetupAvatarPreview'),
+    nameSetupAvatarInput: document.getElementById('nameSetupAvatarInput'),
+    saveNameBtn: document.getElementById('saveNameBtn'),
     
     inviteModal: document.getElementById('inviteModal'),
     closeInviteModal: document.getElementById('closeInviteModal'),
@@ -113,6 +185,17 @@ const UI = {
     managedUserName: document.getElementById('managedUserName'),
     userManageInfo: document.getElementById('userManageInfo'),
     
+    transferOwnerModal: document.getElementById('transferOwnerModal'),
+    transferOwnerList: document.getElementById('transferOwnerList'),
+    
+    emojiPicker: document.getElementById('emojiPicker'),
+    emojiGrid: document.getElementById('emojiGrid'),
+    emojiButton: document.getElementById('emojiButton'),
+    
+    voiceSettingsModal: document.getElementById('voiceSettingsModal'),
+    noiseSuppressionToggle: document.getElementById('noiseSuppressionToggle'),
+    echoCancellationToggle: document.getElementById('echoCancellationToggle'),
+    
     // 메인 UI
     chatScreen: document.getElementById('chatScreen'),
     userName: document.getElementById('userName'),
@@ -127,9 +210,17 @@ const UI = {
     fileInput: document.getElementById('fileInput'),
     qrContainer: document.getElementById('qrContainer'),
     channelsList: document.getElementById('channelsList'),
+    voiceChannelsList: document.getElementById('voiceChannelsList'),
     addChannelIcon: document.getElementById('addChannelIcon'),
+    addVoiceChannelIcon: document.getElementById('addVoiceChannelIcon'),
     typingIndicator: document.getElementById('typingIndicator'),
-    statusSelector: document.getElementById('statusSelector')
+    statusSelector: document.getElementById('statusSelector'),
+    languageSelector: document.getElementById('languageSelector'),
+    voiceControls: document.getElementById('voiceControls'),
+    muteBtn: document.getElementById('muteBtn'),
+    deafenBtn: document.getElementById('deafenBtn'),
+    disconnectBtn: document.getElementById('disconnectBtn'),
+    voiceUsers: document.getElementById('voiceUsers')
 };
 
 /**
@@ -143,6 +234,616 @@ function safeGetElement(id, callback) {
         callback(element);
     }
     return element;
+}
+
+/**
+ * 애플리케이션 초기화
+ */
+function initializeApp() {
+    console.log(`${APP_NAME} 애플리케이션 초기화 중... 버전: ${APP_VERSION}`);
+    
+    // 언어 데이터 로드
+    loadLanguage(appState.language);
+    
+    // 로컬 스토리지에서 사용자 설정 불러오기
+    loadUserSettings();
+    
+    // URL에서 초대 코드 확인
+    checkUrlForInviteCode();
+    
+    // 이벤트 리스너 설정
+    setupEventListeners();
+    
+    // 알림 권한 확인
+    checkNotificationPermission();
+    
+    // 키보드 단축키 설정
+    setupKeyboardShortcuts();
+    
+    // 이모지 피커 초기화
+    initEmojiPicker();
+    
+    // 보이스 컨트롤 초기 설정
+    setupVoiceControls();
+    
+    // 디버그 정보 추가
+    console.info(`${APP_NAME} 버전: ${APP_VERSION}`);
+    console.info('WebRTC 지원: ', navigator.mediaDevices ? '지원됨' : '지원되지 않음');
+    console.info('로컬 스토리지 지원: ', window.localStorage ? '지원됨' : '지원되지 않음');
+}
+
+/**
+ * 언어 데이터 로드
+ * @param {string} lang - 언어 코드
+ */
+function loadLanguage(lang) {
+    fetch(`./lang/${lang}.json`)
+        .then(response => response.json())
+        .then(data => {
+            appState.translations = data;
+            updateUILanguage();
+        })
+        .catch(error => {
+            console.error('언어 파일 로드 중 오류:', error);
+            // 기본 언어 (한국어) 다시 시도
+            if (lang !== LOCALE_DEFAULT) {
+                loadLanguage(LOCALE_DEFAULT);
+            }
+        });
+}
+
+/**
+ * UI 언어 업데이트
+ */
+function updateUILanguage() {
+    const t = appState.translations;
+    
+    // 언어 선택기 업데이트
+    if (UI.languageSelector) {
+        UI.languageSelector.value = appState.language;
+    }
+    
+    // 각 요소의 텍스트 업데이트
+    document.querySelectorAll('[data-i18n]').forEach(element => {
+        const key = element.getAttribute('data-i18n');
+        if (t[key]) {
+            element.textContent = t[key];
+        }
+    });
+    
+    // 플레이스홀더 텍스트 업데이트
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+        const key = element.getAttribute('data-i18n-placeholder');
+        if (t[key]) {
+            element.placeholder = t[key];
+        }
+    });
+    
+    // 버튼 텍스트 업데이트
+    document.querySelectorAll('[data-i18n-value]').forEach(element => {
+        const key = element.getAttribute('data-i18n-value');
+        if (t[key]) {
+            element.value = t[key];
+        }
+    });
+    
+    // 타이틀 속성 업데이트
+    document.querySelectorAll('[data-i18n-title]').forEach(element => {
+        const key = element.getAttribute('data-i18n-title');
+        if (t[key]) {
+            element.title = t[key];
+        }
+    });
+}
+
+/**
+ * 번역 함수
+ * @param {string} key - 번역 키
+ * @param {Object} params - 치환할 파라미터
+ * @return {string} 번역된 텍스트
+ */
+function t(key, params = {}) {
+    let text = appState.translations[key] || key;
+    
+    // 파라미터 치환
+    Object.entries(params).forEach(([key, value]) => {
+        text = text.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    });
+    
+    return text;
+}
+
+/**
+ * 키보드 단축키 설정
+ */
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+        // 단축키가 비활성화 되어 있거나 입력 필드에 포커스가 있으면 무시
+        if (!appState.shortcuts.active || 
+            (document.activeElement && 
+             (document.activeElement.tagName === 'INPUT' || 
+              document.activeElement.tagName === 'TEXTAREA'))) {
+            return;
+        }
+        
+        let shortcutKey = '';
+        if (e.altKey) shortcutKey += 'Alt+';
+        if (e.ctrlKey) shortcutKey += 'Ctrl+';
+        if (e.shiftKey) shortcutKey += 'Shift+';
+        shortcutKey += e.key;
+        
+        // 정의된 단축키 확인 및 실행
+        const action = appState.shortcuts.keybinds[shortcutKey];
+        if (action) {
+            e.preventDefault();
+            executeShortcut(action);
+        }
+        
+        // 엔터키 누르면 메시지 입력창으로 포커스
+        if (e.key === 'Enter' && !document.activeElement.tagName === 'INPUT' && UI.messageInput) {
+            UI.messageInput.focus();
+        }
+    });
+}
+
+/**
+ * 단축키 실행
+ * @param {string} action - 실행할 액션
+ */
+function executeShortcut(action) {
+    switch (action) {
+        case 'closeModals':
+            closeAllModals();
+            break;
+        case 'toggleMute':
+            toggleMicrophone();
+            break;
+        case 'toggleDeafen':
+            toggleDeafen();
+            break;
+        case 'openSettings':
+            showProfileModal();
+            break;
+        case 'openUserList':
+            toggleUsersPanel();
+            break;
+        case 'openChannelList':
+            toggleChannelsPanel();
+            break;
+        case 'toggleVoice':
+            if (appState.currentVoiceChannel) {
+                leaveVoiceChannel();
+            } else {
+                joinVoiceChannel('voice-general');
+            }
+            break;
+    }
+}
+
+/**
+ * 모든 모달 닫기
+ */
+function closeAllModals() {
+    document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(modal => {
+        modal.classList.add('hidden');
+    });
+}
+
+/**
+ * 이모지 피커 초기화
+ */
+function initEmojiPicker() {
+    if (!UI.emojiGrid) return;
+    
+    // 이모지 그리드 생성
+    UI.emojiGrid.innerHTML = '';
+    Object.keys(DEFAULT_EMOJIS).forEach(emoji => {
+        const emojiButton = document.createElement('button');
+        emojiButton.className = 'emoji-item';
+        emojiButton.textContent = emoji;
+        emojiButton.title = DEFAULT_EMOJIS[emoji];
+        emojiButton.addEventListener('click', () => {
+            if (UI.messageInput) {
+                insertTextAtCursor(UI.messageInput, emoji);
+            }
+            toggleEmojiPicker(false);
+        });
+        UI.emojiGrid.appendChild(emojiButton);
+    });
+    
+    // 이모지 버튼 이벤트
+    if (UI.emojiButton) {
+        UI.emojiButton.addEventListener('click', () => {
+            toggleEmojiPicker();
+        });
+    }
+    
+    // 외부 클릭 시 피커 닫기
+    document.addEventListener('click', e => {
+        if (UI.emojiPicker && !UI.emojiPicker.contains(e.target) && 
+            UI.emojiButton && !UI.emojiButton.contains(e.target)) {
+            toggleEmojiPicker(false);
+        }
+    });
+}
+
+/**
+ * 이모지 피커 토글
+ * @param {boolean} show - 표시 여부
+ */
+function toggleEmojiPicker(show) {
+    if (!UI.emojiPicker) return;
+    
+    if (show === undefined) {
+        UI.emojiPicker.classList.toggle('hidden');
+    } else {
+        if (show) {
+            UI.emojiPicker.classList.remove('hidden');
+        } else {
+            UI.emojiPicker.classList.add('hidden');
+        }
+    }
+}
+
+/**
+ * 커서 위치에 텍스트 삽입
+ * @param {HTMLElement} input - 입력 요소
+ * @param {string} text - 삽입할 텍스트
+ */
+function insertTextAtCursor(input, text) {
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const value = input.value;
+    
+    input.value = value.substring(0, start) + text + value.substring(end);
+    input.selectionStart = input.selectionEnd = start + text.length;
+    input.focus();
+}
+
+/**
+ * 보이스 채팅 컨트롤 설정
+ */
+function setupVoiceControls() {
+    if (!UI.voiceControls) return;
+    
+    // 초기 상태는 숨김
+    UI.voiceControls.classList.add('hidden');
+    
+    // 음소거 버튼
+    if (UI.muteBtn) {
+        UI.muteBtn.addEventListener('click', toggleMicrophone);
+    }
+    
+    // 헤드셋 버튼 (들리지 않게)
+    if (UI.deafenBtn) {
+        UI.deafenBtn.addEventListener('click', toggleDeafen);
+    }
+    
+    // 연결 끊기 버튼
+    if (UI.disconnectBtn) {
+        UI.disconnectBtn.addEventListener('click', leaveVoiceChannel);
+    }
+}
+
+/**
+ * 마이크 음소거/해제 토글
+ */
+function toggleMicrophone() {
+    if (!appState.localStream) return;
+    
+    const audioTracks = appState.localStream.getAudioTracks();
+    if (audioTracks.length === 0) return;
+    
+    const isMuted = !audioTracks[0].enabled;
+    
+    audioTracks.forEach(track => {
+        track.enabled = isMuted;
+    });
+    
+    // UI 업데이트
+    if (UI.muteBtn) {
+        if (isMuted) {
+            UI.muteBtn.classList.remove('active');
+            UI.muteBtn.title = t('unmute');
+        } else {
+            UI.muteBtn.classList.add('active');
+            UI.muteBtn.title = t('mute');
+        }
+    }
+    
+    // 다른 사용자들에게 상태 알림
+    if (appState.currentVoiceChannel) {
+        broadcastMessage({
+            type: 'voice',
+            action: 'mute_status',
+            userId: appState.localUserId,
+            isMuted: !isMuted
+        });
+    }
+}
+
+/**
+ * 헤드셋 토글 (소리 듣기/안듣기)
+ */
+function toggleDeafen() {
+    // 음성 출력 음소거 상태 토글
+    const isDeafened = !appState.isDeafened;
+    appState.isDeafened = isDeafened;
+    
+    // 다른 사용자들의 오디오 출력 제어
+    Object.values(appState.voiceConnections).forEach(conn => {
+        if (conn.remoteStream) {
+            conn.remoteStream.getAudioTracks().forEach(track => {
+                track.enabled = !isDeafened;
+            });
+        }
+    });
+    
+    // 자신의 마이크도 음소거
+    if (appState.localStream) {
+        appState.localStream.getAudioTracks().forEach(track => {
+            track.enabled = !isDeafened;
+        });
+    }
+    
+    // UI 업데이트
+    if (UI.deafenBtn) {
+        if (isDeafened) {
+            UI.deafenBtn.classList.add('active');
+            UI.deafenBtn.title = t('undeafen');
+            
+            // 음소거 버튼도 비활성화 표시
+            if (UI.muteBtn) {
+                UI.muteBtn.classList.add('active');
+                UI.muteBtn.disabled = true;
+            }
+        } else {
+            UI.deafenBtn.classList.remove('active');
+            UI.deafenBtn.title = t('deafen');
+            
+            // 음소거 버튼 다시 활성화
+            if (UI.muteBtn) {
+                UI.muteBtn.classList.remove('active');
+                UI.muteBtn.disabled = false;
+            }
+        }
+    }
+    
+    // 다른 사용자들에게 상태 알림
+    if (appState.currentVoiceChannel) {
+        broadcastMessage({
+            type: 'voice',
+            action: 'deafen_status',
+            userId: appState.localUserId,
+            isDeafened: isDeafened
+        });
+    }
+}
+
+/**
+ * CAPTCHA 생성
+ * @return {Object} 생성된 CAPTCHA 데이터
+ */
+function generateCaptcha() {
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let captcha = '';
+    for (let i = 0; i < 6; i++) {
+        captcha += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 60;
+    const ctx = canvas.getContext('2d');
+    
+    // 배경색
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 텍스트 스타일
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 30px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // 캡차 텍스트 그리기 (약간 왜곡)
+    for (let i = 0; i < captcha.length; i++) {
+        const x = 30 + i * 30;
+        const y = 30 + Math.sin(i) * 5;
+        const angle = (Math.random() - 0.5) * 0.4;
+        
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.fillText(captcha.charAt(i), 0, 0);
+        ctx.restore();
+    }
+    
+    // 방해선 추가
+    ctx.strokeStyle = '#999';
+    for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height);
+        ctx.lineTo(Math.random() * canvas.width, Math.random() * canvas.height);
+        ctx.stroke();
+    }
+    
+    return {
+        text: captcha,
+        imageUrl: canvas.toDataURL()
+    };
+}
+
+/**
+ * CAPTCHA 모달 표시
+ * @param {Function} callback - 인증 성공 시 호출할 콜백
+ */
+function showCaptchaModal(callback) {
+    if (!UI.captchaModal || !UI.captchaImage || !UI.captchaInput || !UI.verifyCaptchaBtn) {
+        console.error('CAPTCHA 모달 요소가 없습니다.');
+        if (typeof callback === 'function') {
+            callback(true); // 요소가 없으면 실패 처리
+        }
+        return;
+    }
+    
+    // CAPTCHA 생성
+    const captcha = generateCaptcha();
+    appState.currentCaptcha = captcha.text;
+    
+    // 이미지 표시
+    UI.captchaImage.src = captcha.imageUrl;
+    UI.captchaInput.value = '';
+    
+    // 확인 버튼 이벤트
+    const onVerify = function() {
+        const input = UI.captchaInput.value.trim().toUpperCase();
+        const isValid = input === captcha.text;
+        
+        if (isValid) {
+            UI.captchaModal.classList.add('hidden');
+            appState.captchaVerified = true;
+            if (typeof callback === 'function') {
+                callback(false); // 성공
+            }
+        } else {
+            // 실패 시 새로운 CAPTCHA 생성
+            UI.captchaInput.value = '';
+            const newCaptcha = generateCaptcha();
+            appState.currentCaptcha = newCaptcha.text;
+            UI.captchaImage.src = newCaptcha.imageUrl;
+            
+            // 오류 메시지 표시
+            UI.captchaInput.classList.add('error');
+            setTimeout(() => {
+                UI.captchaInput.classList.remove('error');
+            }, 1000);
+        }
+    };
+    
+    // 이벤트 리스너 제거 후 재설정
+    UI.verifyCaptchaBtn.removeEventListener('click', onVerify);
+    UI.verifyCaptchaBtn.addEventListener('click', onVerify);
+    
+    // 엔터키 이벤트
+    UI.captchaInput.removeEventListener('keypress', onCaptchaKeyPress);
+    UI.captchaInput.addEventListener('keypress', onCaptchaKeyPress);
+    
+    function onCaptchaKeyPress(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            onVerify();
+        }
+    }
+    
+    // 모달 표시
+    UI.captchaModal.classList.remove('hidden');
+    UI.captchaInput.focus();
+}
+
+/**
+ * 이름 설정 모달 표시
+ * @param {Function} callback - 설정 완료 시 호출할 콜백
+ */
+function showNameSetupModal(callback) {
+    if (!UI.nameSetupModal || !UI.nameSetupInput || !UI.saveNameBtn) {
+        console.error('이름 설정 모달 요소가 없습니다.');
+        if (typeof callback === 'function') {
+            callback(); // 요소가 없으면 그냥 진행
+        }
+        return;
+    }
+    
+    // 기존 이름 채우기
+    UI.nameSetupInput.value = appState.localUserName || '';
+    
+    // 아바타 미리보기 업데이트
+    if (UI.nameSetupAvatarPreview && appState.localUserAvatar) {
+        UI.nameSetupAvatarPreview.style.backgroundImage = `url(${appState.localUserAvatar})`;
+    }
+    
+    // 아바타 선택 이벤트
+    if (UI.nameSetupAvatarInput) {
+        UI.nameSetupAvatarInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // 이미지 파일 확인
+            if (!file.type.startsWith('image/')) {
+                showToast(t('image_file_only'));
+                return;
+            }
+            
+            // 파일 크기 제한 (1MB)
+            if (file.size > 1024 * 1024) {
+                showToast(t('image_size_limit'));
+                return;
+            }
+            
+            // 이미지 미리보기
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const imageData = e.target.result;
+                if (UI.nameSetupAvatarPreview) {
+                    UI.nameSetupAvatarPreview.style.backgroundImage = `url(${imageData})`;
+                }
+                // 임시 저장
+                appState.tempAvatar = imageData;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+    
+    // 저장 버튼 이벤트
+    const onSave = function() {
+        const name = UI.nameSetupInput.value.trim();
+        if (!name) {
+            UI.nameSetupInput.classList.add('error');
+            setTimeout(() => {
+                UI.nameSetupInput.classList.remove('error');
+            }, 1000);
+            return;
+        }
+        
+        appState.localUserName = name;
+        
+        // 아바타 적용
+        if (appState.tempAvatar) {
+            appState.localUserAvatar = appState.tempAvatar;
+            delete appState.tempAvatar;
+        }
+        
+        // 설정 저장
+        LocalStorage.save('userName', name);
+        if (appState.localUserAvatar) {
+            LocalStorage.save('userAvatar', appState.localUserAvatar);
+        }
+        
+        UI.nameSetupModal.classList.add('hidden');
+        
+        if (typeof callback === 'function') {
+            callback();
+        }
+    };
+    
+    // 이벤트 리스너 제거 후 재설정
+    UI.saveNameBtn.removeEventListener('click', onSave);
+    UI.saveNameBtn.addEventListener('click', onSave);
+    
+    // 엔터키 이벤트
+    UI.nameSetupInput.removeEventListener('keypress', onNameKeyPress);
+    UI.nameSetupInput.addEventListener('keypress', onNameKeyPress);
+    
+    function onNameKeyPress(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            onSave();
+        }
+    }
+    
+    // 모달 표시
+    UI.nameSetupModal.classList.remove('hidden');
+    UI.nameSetupInput.focus();
 }
 
 /**
@@ -187,30 +888,6 @@ function updateAvatarElement(element, avatarUrl, userName) {
         element.style.backgroundImage = '';
         element.style.backgroundColor = getColorFromName(userName || '');
     }
-}
-
-/**
- * 애플리케이션 초기화
- */
-function initializeApp() {
-    console.log(`${APP_NAME} 애플리케이션 초기화 중...`);
-    
-    // 로컬 스토리지에서 사용자 설정 불러오기
-    loadUserSettings();
-    
-    // URL에서 초대 코드 확인
-    checkUrlForInviteCode();
-    
-    // 이벤트 리스너 설정
-    setupEventListeners();
-    
-    // 알림 권한 확인
-    checkNotificationPermission();
-    
-    // 디버그 정보 추가
-    console.info(`${APP_NAME} 버전: 1.2.0`);
-    console.info('WebRTC 지원: ', navigator.mediaDevices ? '지원됨' : '지원되지 않음');
-    console.info('로컬 스토리지 지원: ', window.localStorage ? '지원됨' : '지원되지 않음');
 }
 
 /**
@@ -259,6 +936,28 @@ function loadUserSettings() {
         if (!darkTheme) {
             document.body.classList.add('light-theme');
         }
+        
+        // 언어 설정 불러오기
+        const savedLanguage = LocalStorage.load('language', LOCALE_DEFAULT);
+        appState.language = savedLanguage;
+        
+        // 보이스 설정 불러오기
+        const voiceSettings = LocalStorage.load('voiceSettings', {
+            noiseSuppression: true,
+            echoCancellation: true
+        });
+        
+        appState.noiseSuppression = voiceSettings.noiseSuppression;
+        appState.echoCancellation = voiceSettings.echoCancellation;
+        
+        // 단축키 설정 불러오기
+        const shortcutSettings = LocalStorage.load('shortcutSettings');
+        if (shortcutSettings) {
+            appState.shortcuts = {
+                ...appState.shortcuts,
+                ...shortcutSettings
+            };
+        }
     } catch (error) {
         console.error('사용자 설정 로드 중 오류:', error);
         // 기본값 설정
@@ -283,19 +982,13 @@ function checkUrlForInviteCode() {
             if (/^[a-z0-9]{4}$/i.test(inviteCode)) {
                 console.log('URL에서 유효한 초대 코드 감지:', inviteCode);
                 
-                // 입력 필드에 초대 코드 채우기
-                if (UI.joinCodeModalInput) {
-                    UI.joinCodeModalInput.value = inviteCode;
+                // 초기 모달 숨기기
+                if (UI.entryModal) {
+                    UI.entryModal.classList.add('hidden');
                 }
                 
-                // 약간의 지연 후 자동 참여
-                setTimeout(() => {
-                    const userName = UI.userNameModalInput && UI.userNameModalInput.value.trim() 
-                        ? UI.userNameModalInput.value.trim() 
-                        : appState.localUserName;
-                    saveUserName(userName);
-                    joinRoom(inviteCode);
-                }, 1000);
+                // 연결 시도
+                handleDirectConnection(inviteCode);
             } else {
                 console.log('URL에 유효하지 않은 초대 코드:', inviteCode);
             }
@@ -306,6 +999,36 @@ function checkUrlForInviteCode() {
 }
 
 /**
+ * 직접 연결 처리 (URL 링크로 접속 시)
+ * @param {string} inviteCode - 초대 코드
+ */
+function handleDirectConnection(inviteCode) {
+    // 연결 모달 표시
+    showConnectionModal();
+    updateConnectionStep(1, 'active');
+    
+    // CAPTCHA 인증 진행
+    showCaptchaModal((captchaFailed) => {
+        if (captchaFailed) {
+            handleConnectionError('CAPTCHA 인증에 실패했습니다.');
+            
+            // 잠시 후 초기 모달로 돌아가기
+            setTimeout(() => {
+                if (UI.connectionModal) UI.connectionModal.classList.add('hidden');
+                if (UI.entryModal) UI.entryModal.classList.remove('hidden');
+            }, 2000);
+            return;
+        }
+        
+        // 이름 설정 모달 표시
+        showNameSetupModal(() => {
+            // 이름 설정 후 방 참여
+            joinRoom(inviteCode);
+        });
+    });
+}
+
+/**
  * 이벤트 리스너 설정
  */
 function setupEventListeners() {
@@ -313,27 +1036,44 @@ function setupEventListeners() {
         // 진입 모달 이벤트
         if (UI.createRoomModalBtn) {
             UI.createRoomModalBtn.addEventListener('click', () => {
-                const userName = UI.userNameModalInput && UI.userNameModalInput.value.trim() 
-                    ? UI.userNameModalInput.value.trim() 
-                    : appState.localUserName;
-                saveUserName(userName);
-                createRoom();
+                // CAPTCHA 인증
+                showCaptchaModal((captchaFailed) => {
+                    if (captchaFailed) {
+                        showToast(t('captcha_failed'));
+                        return;
+                    }
+                    
+                    const userName = UI.userNameModalInput && UI.userNameModalInput.value.trim() 
+                        ? UI.userNameModalInput.value.trim() 
+                        : appState.localUserName;
+                    saveUserName(userName);
+                    createRoom();
+                });
             });
         }
         
         if (UI.joinRoomModalBtn && UI.joinCodeModalInput) {
             UI.joinRoomModalBtn.addEventListener('click', () => {
                 const code = UI.joinCodeModalInput.value.trim();
-                const userName = UI.userNameModalInput && UI.userNameModalInput.value.trim() 
-                    ? UI.userNameModalInput.value.trim() 
-                    : appState.localUserName;
                 
-                if (code) {
+                if (!code) {
+                    showToast(t('enter_invite_code'));
+                    return;
+                }
+                
+                // CAPTCHA 인증
+                showCaptchaModal((captchaFailed) => {
+                    if (captchaFailed) {
+                        showToast(t('captcha_failed'));
+                        return;
+                    }
+                    
+                    const userName = UI.userNameModalInput && UI.userNameModalInput.value.trim() 
+                        ? UI.userNameModalInput.value.trim() 
+                        : appState.localUserName;
                     saveUserName(userName);
                     joinRoom(code);
-                } else {
-                    showToast('초대 코드를 입력해주세요.');
-                }
+                });
             });
         }
         
@@ -375,14 +1115,14 @@ function setupEventListeners() {
         if (UI.copyInviteBtn && UI.inviteCode) {
             UI.copyInviteBtn.addEventListener('click', () => {
                 copyToClipboard(UI.inviteCode.textContent || '');
-                showToast('초대 코드가 클립보드에 복사되었습니다.');
+                showToast(t('copied_invite_code'));
             });
         }
         
         if (UI.copyLinkBtn && UI.inviteLink) {
             UI.copyLinkBtn.addEventListener('click', () => {
                 copyToClipboard(UI.inviteLink.textContent || '');
-                showToast('초대 링크가 클립보드에 복사되었습니다.');
+                showToast(t('copied_invite_link'));
             });
         }
         
@@ -460,9 +1200,20 @@ function setupEventListeners() {
         if (UI.addChannelIcon) {
             UI.addChannelIcon.addEventListener('click', () => {
                 if (appState.isHost || appState.isAdmin) {
-                    showAddChannelPrompt();
+                    showAddChannelPrompt('text');
                 } else {
-                    showToast('채널 추가 권한이 없습니다.');
+                    showToast(t('no_channel_permission'));
+                }
+            });
+        }
+        
+        // 음성 채널 추가 아이콘 이벤트
+        if (UI.addVoiceChannelIcon) {
+            UI.addVoiceChannelIcon.addEventListener('click', () => {
+                if (appState.isHost || appState.isAdmin) {
+                    showAddChannelPrompt('voice');
+                } else {
+                    showToast(t('no_channel_permission'));
                 }
             });
         }
@@ -501,6 +1252,68 @@ function setupEventListeners() {
             closeUserManageModal.addEventListener('click', () => {
                 const userManageModal = document.getElementById('userManageModal');
                 if (userManageModal) userManageModal.classList.add('hidden');
+            });
+        }
+        
+        // 방장 이임 모달 이벤트
+        const closeTransferOwnerModal = document.getElementById('closeTransferOwnerModal');
+        if (closeTransferOwnerModal) {
+            closeTransferOwnerModal.addEventListener('click', () => {
+                const transferOwnerModal = document.getElementById('transferOwnerModal');
+                if (transferOwnerModal) transferOwnerModal.classList.add('hidden');
+            });
+        }
+        
+        // 방장 이임 버튼 이벤트
+        const transferOwnerBtn = document.getElementById('transferOwnerBtn');
+        if (transferOwnerBtn) {
+            transferOwnerBtn.addEventListener('click', showTransferOwnerModal);
+        }
+        
+        // 보이스 설정 모달 이벤트
+        const closeVoiceSettingsModal = document.getElementById('closeVoiceSettingsModal');
+        if (closeVoiceSettingsModal) {
+            closeVoiceSettingsModal.addEventListener('click', () => {
+                const voiceSettingsModal = document.getElementById('voiceSettingsModal');
+                if (voiceSettingsModal) voiceSettingsModal.classList.add('hidden');
+            });
+        }
+        
+        // 보이스 설정 저장 이벤트
+        const saveVoiceSettingsBtn = document.getElementById('saveVoiceSettingsBtn');
+        if (saveVoiceSettingsBtn) {
+            saveVoiceSettingsBtn.addEventListener('click', saveVoiceSettings);
+        }
+        
+        // 잡음 제거 설정 이벤트
+        if (UI.noiseSuppressionToggle) {
+            UI.noiseSuppressionToggle.addEventListener('change', (e) => {
+                appState.noiseSuppression = e.target.checked;
+                
+                // 현재 활성화된 보이스 스트림이 있다면 설정 적용
+                if (appState.localStream) {
+                    restartAudioStream();
+                }
+            });
+        }
+        
+        // 에코 제거 설정 이벤트
+        if (UI.echoCancellationToggle) {
+            UI.echoCancellationToggle.addEventListener('change', (e) => {
+                appState.echoCancellation = e.target.checked;
+                
+                // 현재 활성화된 보이스 스트림이 있다면 설정 적용
+                if (appState.localStream) {
+                    restartAudioStream();
+                }
+            });
+        }
+        
+        // 언어 선택 이벤트
+        if (UI.languageSelector) {
+            UI.languageSelector.addEventListener('change', (e) => {
+                const lang = e.target.value;
+                changeLanguage(lang);
             });
         }
         
@@ -553,6 +1366,11 @@ function setupEventListeners() {
         
         // 창 닫기 이벤트
         window.addEventListener('beforeunload', () => {
+            // 음성 채널에 연결된 경우 종료
+            if (appState.currentVoiceChannel) {
+                leaveVoiceChannel();
+            }
+            
             // 연결된 모든 피어들에게 연결 종료 메시지 전송
             Object.values(appState.connections).forEach(conn => {
                 try {
@@ -595,7 +1413,7 @@ function setupEventListeners() {
         
         // 네트워크 상태 이벤트
         window.addEventListener('online', () => {
-            showToast('인터넷 연결이 복구되었습니다.');
+            showToast(t('internet_connected'));
             
             // 재연결 시도
             if (appState.connectionEstablished && appState.peer) {
@@ -606,12 +1424,525 @@ function setupEventListeners() {
         });
         
         window.addEventListener('offline', () => {
-            showToast('인터넷 연결이 끊겼습니다.', 0, 'error');
-            updateConnectionStatus('연결 끊김', 'disconnected');
+            showToast(t('internet_disconnected'), 0, 'error');
+            updateConnectionStatus(t('connection_lost'), 'disconnected');
         });
     } catch (error) {
         console.error('이벤트 리스너 설정 중 오류:', error);
-        showToast('애플리케이션 초기화 중 오류가 발생했습니다. 페이지를 새로고침 해주세요.', 0, 'error');
+        showToast(t('init_error'), 0, 'error');
+    }
+}
+
+/**
+ * 보이스 설정 저장
+ */
+function saveVoiceSettings() {
+    try {
+        const voiceSettings = {
+            noiseSuppression: appState.noiseSuppression,
+            echoCancellation: appState.echoCancellation
+        };
+        
+        LocalStorage.save('voiceSettings', voiceSettings);
+        
+        // 현재 활성화된 보이스 스트림이 있다면 설정 적용
+        if (appState.localStream) {
+            restartAudioStream();
+        }
+        
+        // 모달 닫기
+        const voiceSettingsModal = document.getElementById('voiceSettingsModal');
+        if (voiceSettingsModal) voiceSettingsModal.classList.add('hidden');
+        
+        showToast(t('settings_saved'));
+    } catch (error) {
+        console.error('보이스 설정 저장 중 오류:', error);
+        showToast(t('settings_save_error'), 3000, 'error');
+    }
+}
+
+/**
+ * 오디오 스트림 재시작 (설정 변경 시)
+ */
+function restartAudioStream() {
+    try {
+        // 현재 연결된 음성 채널 저장
+        const currentChannel = appState.currentVoiceChannel;
+        
+        // 현재 모든 연결 종료
+        leaveVoiceChannel();
+        
+        // 잠시 후 다시 연결
+        setTimeout(() => {
+            if (currentChannel) {
+                joinVoiceChannel(currentChannel);
+            }
+        }, 500);
+    } catch (error) {
+        console.error('오디오 스트림 재시작 중 오류:', error);
+    }
+}
+
+/**
+ * 언어 변경
+ * @param {string} lang - 언어 코드
+ */
+function changeLanguage(lang) {
+    if (lang === appState.language) return;
+    
+    appState.language = lang;
+    LocalStorage.save('language', lang);
+    
+    // 언어 데이터 로드
+    loadLanguage(lang);
+    
+    showToast(t('language_changed'));
+}
+
+/**
+ * 방장 이임 모달 표시
+ */
+function showTransferOwnerModal() {
+    try {
+        // 방장이 아니면 표시하지 않음
+        if (!appState.isHost) {
+            showToast(t('not_host'));
+            return;
+        }
+        
+        const transferOwnerModal = document.getElementById('transferOwnerModal');
+        const transferOwnerList = document.getElementById('transferOwnerList');
+        
+        if (!transferOwnerModal || !transferOwnerList) return;
+        
+        // 사용자 목록 초기화
+        transferOwnerList.innerHTML = '';
+        
+        // 사용자 목록 생성 (방장, 자신 제외)
+        Object.entries(appState.users).forEach(([userId, user]) => {
+            if (userId !== appState.localUserId && user.role !== 'host') {
+                const userItem = document.createElement('div');
+                userItem.className = 'transfer-user-item';
+                
+                // 아바타 배경 설정
+                let avatarStyle = '';
+                if (user.avatar) {
+                    avatarStyle = `background-image: url(${escapeHtml(user.avatar)}); background-color: transparent;`;
+                } else {
+                    const userColor = getColorFromName(user.name);
+                    avatarStyle = `background-color: ${userColor};`;
+                }
+                
+                userItem.innerHTML = `
+                    <div class="transfer-user-avatar" style="${avatarStyle}"></div>
+                    <div class="transfer-user-name">${escapeHtml(user.name)}</div>
+                    <button class="transfer-button" data-user-id="${userId}">${t('transfer')}</button>
+                `;
+                
+                transferOwnerList.appendChild(userItem);
+            }
+        });
+        
+        // 이임 버튼 이벤트 설정
+        transferOwnerList.querySelectorAll('.transfer-button').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const userId = e.target.dataset.userId;
+                if (userId) {
+                    transferOwnership(userId);
+                    transferOwnerModal.classList.add('hidden');
+                }
+            });
+        });
+        
+        // 모달 표시
+        transferOwnerModal.classList.remove('hidden');
+    } catch (error) {
+        console.error('방장 이임 모달 표시 중 오류:', error);
+    }
+}
+
+/**
+ * 방장 권한 이임
+ * @param {string} newOwnerId - 새 방장 ID
+ */
+function transferOwnership(newOwnerId) {
+    try {
+        // 방장이 아니면 이임 불가
+        if (!appState.isHost) {
+            showToast(t('not_host'));
+            return;
+        }
+        
+        // 새 방장 확인
+        if (!appState.users[newOwnerId]) {
+            showToast(t('user_not_found'));
+            return;
+        }
+        
+        const newOwnerName = appState.users[newOwnerId].name;
+        
+        // 호스트 변경 메시지 브로드캐스트
+        broadcastMessage({
+            type: 'system',
+            action: 'host_transfer',
+            currentHostId: appState.localUserId,
+            newHostId: newOwnerId,
+            newHostName: newOwnerName
+        });
+        
+        // 자신의 권한 변경
+        appState.isHost = false;
+        if (appState.users[appState.localUserId]) {
+            appState.users[appState.localUserId].role = 'admin'; // 이임 후에는 관리자로 변경
+        }
+        
+        // 새 방장 권한 변경
+        if (appState.users[newOwnerId]) {
+            appState.users[newOwnerId].role = 'host';
+        }
+        
+        // UI 업데이트
+        updateUsersList();
+        
+        // 시스템 메시지 표시
+        addSystemMessage(t('ownership_transferred', { user: newOwnerName }));
+        showToast(t('ownership_transferred', { user: newOwnerName }));
+    } catch (error) {
+        console.error('방장 권한 이임 중 오류:', error);
+    }
+}
+
+/**
+ * 보이스 채널 참여
+ * @param {string} channelId - 음성 채널 ID
+ */
+function joinVoiceChannel(channelId) {
+    try {
+        // 이미 다른 음성 채널에 참여 중인 경우 먼저 나가기
+        if (appState.currentVoiceChannel) {
+            leaveVoiceChannel();
+        }
+        
+        // 채널 유효성 검사
+        if (!appState.voiceChannels[channelId]) {
+            showToast(t('voice_channel_not_found'));
+            return;
+        }
+        
+        console.log(`음성 채널 참여: ${channelId}`);
+        
+        // 마이크 권한 요청
+        navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: appState.echoCancellation,
+                noiseSuppression: appState.noiseSuppression,
+                autoGainControl: true
+            },
+            video: false
+        })
+        .then(stream => {
+            appState.localStream = stream;
+            appState.currentVoiceChannel = channelId;
+            
+            // 채널에 자신을 추가
+            if (!appState.voiceChannels[channelId].users.includes(appState.localUserId)) {
+                appState.voiceChannels[channelId].users.push(appState.localUserId);
+            }
+            
+            // 음성 컨트롤 표시
+            if (UI.voiceControls) {
+                UI.voiceControls.classList.remove('hidden');
+            }
+            
+            // 다른 사용자들에게 참여 알림
+            broadcastMessage({
+                type: 'voice',
+                action: 'join_channel',
+                userId: appState.localUserId,
+                userName: appState.localUserName,
+                channelId: channelId
+            });
+            
+            // 채널에 있는 다른 사용자들과 연결
+            appState.voiceChannels[channelId].users.forEach(userId => {
+                if (userId !== appState.localUserId) {
+                    createVoiceConnection(userId);
+                }
+            });
+            
+            // 음성 채널 UI 업데이트
+            updateVoiceChannelsList();
+            
+            // 효과음 재생
+            playNotificationSound('voice_join');
+            
+            // 시스템 메시지 표시
+            const channelName = appState.voiceChannels[channelId].name;
+            addSystemMessage(t('voice_joined', { channel: channelName }));
+        })
+        .catch(error => {
+            console.error('마이크 권한 요청 중 오류:', error);
+            showToast(t('microphone_permission_error'), 0, 'error');
+        });
+    } catch (error) {
+        console.error('보이스 채널 참여 중 오류:', error);
+    }
+}
+
+/**
+ * 보이스 채널 나가기
+ */
+function leaveVoiceChannel() {
+    try {
+        if (!appState.currentVoiceChannel) return;
+        
+        const channelId = appState.currentVoiceChannel;
+        console.log(`음성 채널 나가기: ${channelId}`);
+        
+        // 다른 사용자들에게 나감 알림
+        broadcastMessage({
+            type: 'voice',
+            action: 'leave_channel',
+            userId: appState.localUserId,
+            channelId: channelId
+        });
+        
+        // 채널에서 자신을 제거
+        if (appState.voiceChannels[channelId]) {
+            appState.voiceChannels[channelId].users = 
+                appState.voiceChannels[channelId].users.filter(id => id !== appState.localUserId);
+        }
+        
+        // 음성 연결 종료
+        Object.values(appState.voiceConnections).forEach(conn => {
+            if (conn.mediaConnection) {
+                conn.mediaConnection.close();
+            }
+        });
+        appState.voiceConnections = {};
+        
+        // 로컬 스트림 종료
+        if (appState.localStream) {
+            appState.localStream.getTracks().forEach(track => track.stop());
+            appState.localStream = null;
+        }
+        
+        // 상태 초기화
+        appState.currentVoiceChannel = null;
+        appState.isDeafened = false;
+        
+        // 음성 컨트롤 숨김
+        if (UI.voiceControls) {
+            UI.voiceControls.classList.add('hidden');
+        }
+        
+        // 음성 채널 UI 업데이트
+        updateVoiceChannelsList();
+        
+        // 효과음 재생
+        playNotificationSound('voice_leave');
+        
+        // 시스템 메시지 표시
+        const channelName = appState.voiceChannels[channelId]?.name || channelId;
+        addSystemMessage(t('voice_left', { channel: channelName }));
+    } catch (error) {
+        console.error('보이스 채널 나가기 중 오류:', error);
+    }
+}
+
+/**
+ * 음성 연결 생성
+ * @param {string} peerId - 상대방 피어 ID
+ */
+function createVoiceConnection(peerId) {
+    try {
+        if (!appState.peer || !appState.localStream) return;
+        
+        console.log(`음성 연결 생성: ${peerId}`);
+        
+        // 이미 연결이 있으면 무시
+        if (appState.voiceConnections[peerId] && appState.voiceConnections[peerId].mediaConnection) {
+            return;
+        }
+        
+        // 음성 연결 생성
+        const mediaConnection = appState.peer.call(peerId, appState.localStream);
+        
+        // 연결 정보 저장
+        appState.voiceConnections[peerId] = {
+            mediaConnection: mediaConnection,
+            remoteStream: null
+        };
+        
+        // 음성 데이터 수신
+        mediaConnection.on('stream', remoteStream => {
+            console.log(`음성 스트림 수신: ${peerId}`);
+            appState.voiceConnections[peerId].remoteStream = remoteStream;
+            
+            // 헤드셋 상태에 따라 초기 음소거
+            if (appState.isDeafened) {
+                remoteStream.getAudioTracks().forEach(track => {
+                    track.enabled = false;
+                });
+            }
+            
+            // 오디오 요소 생성 및 재생
+            const audioEl = new Audio();
+            audioEl.srcObject = remoteStream;
+            audioEl.autoplay = true;
+            
+            // 연결 정보에 오디오 요소 저장
+            appState.voiceConnections[peerId].audioElement = audioEl;
+            
+            // 음성 사용자 UI 업데이트
+            updateVoiceUsers();
+        });
+        
+        // 연결 종료 이벤트
+        mediaConnection.on('close', () => {
+            console.log(`음성 연결 종료: ${peerId}`);
+            
+            // 연결 정보에서 제거
+            delete appState.voiceConnections[peerId];
+            
+            // 음성 사용자 UI 업데이트
+            updateVoiceUsers();
+        });
+        
+        mediaConnection.on('error', err => {
+            console.error(`음성 연결 오류: ${peerId}`, err);
+        });
+    } catch (error) {
+        console.error('음성 연결 생성 중 오류:', error);
+    }
+}
+
+/**
+ * 음성 채널 목록 업데이트
+ */
+function updateVoiceChannelsList() {
+    try {
+        if (!UI.voiceChannelsList) return;
+        
+        // 기존 항목 제거
+        UI.voiceChannelsList.innerHTML = '';
+        
+        // 음성 채널 목록 생성
+        Object.entries(appState.voiceChannels).forEach(([channelId, channel]) => {
+            const channelDiv = document.createElement('div');
+            channelDiv.className = 'voice-channel';
+            channelDiv.dataset.channel = channelId;
+            
+            if (channelId === appState.currentVoiceChannel) {
+                channelDiv.classList.add('active');
+            }
+            
+            // 사용자 수 표시
+            const userCount = channel.users ? channel.users.length : 0;
+            
+            channelDiv.innerHTML = `
+                <div class="voice-channel-icon">🔊</div>
+                <div class="voice-channel-info">
+                    <div class="voice-channel-name">${escapeHtml(channel.name)}</div>
+                    <div class="voice-channel-users">${userCount}명</div>
+                </div>
+                <div class="voice-channel-actions">
+                    ${channelId === appState.currentVoiceChannel ? 
+                        '<button class="voice-leave-btn" title="나가기">✕</button>' : 
+                        '<button class="voice-join-btn" title="참여하기">▶</button>'}
+                </div>
+            `;
+            
+            // 채널 클릭 이벤트
+            channelDiv.addEventListener('click', () => {
+                if (channelId === appState.currentVoiceChannel) {
+                    // 현재 참여 중인 채널이면 나가기
+                    leaveVoiceChannel();
+                } else {
+                    // 다른 채널이면 참여
+                    joinVoiceChannel(channelId);
+                }
+            });
+            
+            // 나가기/참여 버튼 이벤트
+            const leaveBtn = channelDiv.querySelector('.voice-leave-btn');
+            if (leaveBtn) {
+                leaveBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    leaveVoiceChannel();
+                });
+            }
+            
+            const joinBtn = channelDiv.querySelector('.voice-join-btn');
+            if (joinBtn) {
+                joinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    joinVoiceChannel(channelId);
+                });
+            }
+            
+            UI.voiceChannelsList.appendChild(channelDiv);
+        });
+    } catch (error) {
+        console.error('음성 채널 목록 업데이트 중 오류:', error);
+    }
+}
+
+/**
+ * 음성 채널 참여자 목록 업데이트
+ */
+function updateVoiceUsers() {
+    try {
+        if (!UI.voiceUsers || !appState.currentVoiceChannel) return;
+        
+        const channelId = appState.currentVoiceChannel;
+        const channel = appState.voiceChannels[channelId];
+        
+        if (!channel) return;
+        
+        // 기존 항목 제거
+        UI.voiceUsers.innerHTML = '';
+        
+        // 사용자 목록 생성
+        channel.users.forEach(userId => {
+            const user = appState.users[userId];
+            if (!user) return;
+            
+            const userDiv = document.createElement('div');
+            userDiv.className = 'voice-user';
+            userDiv.dataset.userId = userId;
+            
+            // 자신인지 확인
+            const isMe = userId === appState.localUserId;
+            
+            // 음성 상태 확인
+            const isMuted = isMe ? 
+                (!appState.localStream || !appState.localStream.getAudioTracks()[0].enabled) :
+                (appState.voiceConnections[userId]?.isMuted || false);
+            
+            // 아바타 배경 설정
+            let avatarStyle = '';
+            if (user.avatar) {
+                avatarStyle = `background-image: url(${escapeHtml(user.avatar)}); background-color: transparent;`;
+            } else {
+                const userColor = getColorFromName(user.name);
+                avatarStyle = `background-color: ${userColor};`;
+            }
+            
+            userDiv.innerHTML = `
+                <div class="voice-user-avatar" style="${avatarStyle}"></div>
+                <div class="voice-user-name">${escapeHtml(user.name)}${isMe ? ' (나)' : ''}</div>
+                <div class="voice-user-status">
+                    ${isMuted ? 
+                        '<span class="voice-status-icon muted" title="음소거됨">🔇</span>' : 
+                        '<span class="voice-status-icon speaking" title="말하는 중">🔊</span>'}
+                </div>
+            `;
+            
+            UI.voiceUsers.appendChild(userDiv);
+        });
+    } catch (error) {
+        console.error('음성 채널 참여자 목록 업데이트 중 오류:', error);
     }
 }
 
@@ -640,7 +1971,7 @@ function setupUserManagementButtons() {
                     });
                     
                     safeGetElement('userManageModal', (modal) => modal.classList.add('hidden'));
-                    showToast('관리자 권한을 부여했습니다.');
+                    showToast(t('admin_permission_granted'));
                 }
             });
         }
@@ -659,7 +1990,7 @@ function setupUserManagementButtons() {
                     });
                     
                     safeGetElement('userManageModal', (modal) => modal.classList.add('hidden'));
-                    showToast('관리자 권한을 제거했습니다.');
+                    showToast(t('admin_permission_removed'));
                 }
             });
         }
@@ -679,7 +2010,7 @@ function setupUserManagementButtons() {
                     });
                     
                     safeGetElement('userManageModal', (modal) => modal.classList.add('hidden'));
-                    showToast('사용자가 5분 동안 타임아웃 상태가 되었습니다.');
+                    showToast(t('user_timeout', { minutes: 5 }));
                 }
             });
         }
@@ -698,7 +2029,7 @@ function setupUserManagementButtons() {
                     });
                     
                     safeGetElement('userManageModal', (modal) => modal.classList.add('hidden'));
-                    showToast('사용자를 강퇴했습니다.');
+                    showToast(t('user_kicked'));
                 }
             });
         }
@@ -719,7 +2050,7 @@ function setupUserManagementButtons() {
                     });
                     
                     safeGetElement('userManageModal', (modal) => modal.classList.add('hidden'));
-                    showToast('사용자를 차단했습니다.');
+                    showToast(t('user_banned'));
                 }
             });
         }
@@ -746,19 +2077,49 @@ function setupChannelContextMenu() {
                 
                 // 기본 채널은 삭제 불가
                 if (channelId === 'general') {
-                    showToast('기본 채널은 삭제할 수 없습니다.');
+                    showToast(t('cannot_delete_general'));
                     return;
                 }
                 
                 // 관리자 권한 확인
                 if (!appState.isHost && !appState.isAdmin) {
-                    showToast('채널 삭제 권한이 없습니다.');
+                    showToast(t('no_channel_permission'));
                     return;
                 }
                 
                 // 확인 다이얼로그
-                if (confirm(`"${appState.channels[channelId].name}" 채널을 삭제하시겠습니까?`)) {
+                if (confirm(t('confirm_delete_channel', { name: appState.channels[channelId].name }))) {
                     deleteChannel(channelId);
+                }
+            });
+        }
+        
+        // 음성 채널 목록에 우클릭 이벤트 추가
+        if (UI.voiceChannelsList) {
+            UI.voiceChannelsList.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                
+                // 클릭한 요소가 채널인지 확인
+                const channelDiv = e.target.closest('.voice-channel');
+                if (!channelDiv) return;
+                
+                const channelId = channelDiv.dataset.channel;
+                
+                // 기본 채널은 삭제 불가
+                if (channelId === 'voice-general') {
+                    showToast(t('cannot_delete_general_voice'));
+                    return;
+                }
+                
+                // 관리자 권한 확인
+                if (!appState.isHost && !appState.isAdmin) {
+                    showToast(t('no_channel_permission'));
+                    return;
+                }
+                
+                // 확인 다이얼로그
+                if (confirm(t('confirm_delete_voice_channel', { name: appState.voiceChannels[channelId].name }))) {
+                    deleteVoiceChannel(channelId);
                 }
             });
         }
@@ -782,7 +2143,7 @@ function showUserManageModal(userId) {
         
         // 관리자 권한 확인
         if (!appState.isHost && !appState.isAdmin) {
-            showToast('사용자 관리 권한이 없습니다.');
+            showToast(t('no_user_management_permission'));
             return;
         }
         
@@ -792,17 +2153,17 @@ function showUserManageModal(userId) {
         }
         
         // 사용자 역할 정보
-        let roleInfo = '일반 사용자';
+        let roleInfo = t('user_role_user');
         if (user.role === 'host') {
-            roleInfo = '방장';
+            roleInfo = t('user_role_host');
         } else if (user.role === 'admin') {
-            roleInfo = '관리자';
+            roleInfo = t('user_role_admin');
         }
         
         if (userManageInfo) {
             userManageInfo.innerHTML = `
-                <p><strong>역할:</strong> ${roleInfo}</p>
-                <p><strong>상태:</strong> ${getUserStatusText(user.status)}</p>
+                <p><strong>${t('role')}:</strong> ${roleInfo}</p>
+                <p><strong>${t('status')}:</strong> ${getUserStatusText(user.status)}</p>
             `;
         }
         
@@ -843,7 +2204,7 @@ function showUserManageModal(userId) {
         safeGetElement('userManageModal', (modal) => modal.classList.remove('hidden'));
     } catch (error) {
         console.error('사용자 관리 모달 표시 중 오류:', error);
-        showToast('사용자 관리를 불러오는 중 오류가 발생했습니다.', 3000, 'error');
+        showToast(t('user_management_error'), 3000, 'error');
     }
 }
 
@@ -854,11 +2215,11 @@ function showUserManageModal(userId) {
  */
 function getUserStatusText(status) {
     switch (status) {
-        case 'online': return '온라인';
-        case 'away': return '자리 비움';
-        case 'dnd': return '방해 금지';
-        case 'offline': return '오프라인';
-        default: return '온라인';
+        case 'online': return t('status_online');
+        case 'away': return t('status_away');
+        case 'dnd': return t('status_dnd');
+        case 'offline': return t('status_offline');
+        default: return t('status_online');
     }
 }
 
@@ -914,9 +2275,9 @@ function updateStatusIndicator(userId, status) {
             if (statusIcon) {
                 statusIcon.className = `user-status-icon status-${status}`;
                 
-                let statusTitle = '온라인';
-                if (status === 'away') statusTitle = '자리 비움';
-                if (status === 'dnd') statusTitle = '방해 금지';
+                let statusTitle = t('status_online');
+                if (status === 'away') statusTitle = t('status_away');
+                if (status === 'dnd') statusTitle = t('status_dnd');
                 
                 statusIcon.title = statusTitle;
             }
@@ -1017,11 +2378,11 @@ function updateTypingIndicator() {
         // 타이핑 메시지 생성
         let typingMessage = '';
         if (typingUsers.length === 1) {
-            typingMessage = `${typingUsers[0]}님이 입력 중...`;
+            typingMessage = t('typing_single', { user: typingUsers[0] });
         } else if (typingUsers.length === 2) {
-            typingMessage = `${typingUsers[0]}님과 ${typingUsers[1]}님이 입력 중...`;
+            typingMessage = t('typing_double', { user1: typingUsers[0], user2: typingUsers[1] });
         } else {
-            typingMessage = `${typingUsers.length}명이 입력 중...`;
+            typingMessage = t('typing_multiple', { count: typingUsers.length });
         }
         
         // UI 업데이트
@@ -1070,6 +2431,23 @@ function showProfileModal() {
             statusSelector.value = appState.localUserStatus;
         }
         
+        // 언어 선택기 표시
+        const languageSelector = document.getElementById('languageSelector');
+        if (languageSelector) {
+            languageSelector.value = appState.language;
+        }
+        
+        // 보이스 설정 표시
+        const noiseSuppressionToggle = document.getElementById('noiseSuppressionToggle');
+        if (noiseSuppressionToggle) {
+            noiseSuppressionToggle.checked = appState.noiseSuppression;
+        }
+        
+        const echoCancellationToggle = document.getElementById('echoCancellationToggle');
+        if (echoCancellationToggle) {
+            echoCancellationToggle.checked = appState.echoCancellation;
+        }
+        
         // 테마 설정 표시
         const themeToggle = document.getElementById('themeToggle');
         if (themeToggle) {
@@ -1083,7 +2461,7 @@ function showProfileModal() {
         profileModal.classList.remove('hidden');
     } catch (error) {
         console.error('프로필 모달 표시 중 오류:', error);
-        showToast('프로필 설정을 불러오는 중 오류가 발생했습니다.', 3000, 'error');
+        showToast(t('profile_load_error'), 3000, 'error');
     }
 }
 
@@ -1098,13 +2476,13 @@ function handleAvatarChange(e) {
         
         // 파일 유형 검사
         if (!file.type.startsWith('image/')) {
-            showToast('이미지 파일만 선택할 수 있습니다.');
+            showToast(t('image_file_only'));
             return;
         }
         
         // 파일 크기 제한 (1MB)
         if (file.size > 1024 * 1024) {
-            showToast('이미지 크기는 1MB 이하여야 합니다.');
+            showToast(t('image_size_limit'));
             return;
         }
         
@@ -1127,7 +2505,7 @@ function handleAvatarChange(e) {
         reader.readAsDataURL(file);
     } catch (error) {
         console.error('아바타 변경 중 오류:', error);
-        showToast('이미지 처리 중 오류가 발생했습니다.', 3000, 'error');
+        showToast(t('image_process_error'), 3000, 'error');
     }
 }
 
@@ -1140,6 +2518,8 @@ function saveProfile() {
         const notificationToggle = document.getElementById('notificationToggle');
         const soundToggle = document.getElementById('soundToggle');
         const statusSelector = document.getElementById('statusSelector');
+        const languageSelector = document.getElementById('languageSelector');
+        const themeToggle = document.getElementById('themeToggle');
         
         // 사용자 이름 변경
         if (profileNameInput && profileNameInput.value.trim()) {
@@ -1202,16 +2582,29 @@ function saveProfile() {
             changeUserStatus(statusSelector.value);
         }
         
+        // 언어 변경
+        if (languageSelector && languageSelector.value !== appState.language) {
+            changeLanguage(languageSelector.value);
+        }
+        
+        // 테마 변경
+        if (themeToggle) {
+            const isLightTheme = themeToggle.checked;
+            if (isLightTheme !== document.body.classList.contains('light-theme')) {
+                toggleTheme({ target: { checked: isLightTheme } });
+            }
+        }
+        
         // 알림 설정 저장
         saveNotificationSettings();
         
         // 모달 닫기
         safeGetElement('profileModal', (modal) => modal.classList.add('hidden'));
         
-        showToast('프로필이 저장되었습니다.');
+        showToast(t('profile_saved'));
     } catch (error) {
         console.error('프로필 저장 중 오류:', error);
-        showToast('프로필 저장 중 오류가 발생했습니다.', 3000, 'error');
+        showToast(t('profile_save_error'), 3000, 'error');
     }
 }
 
@@ -1304,7 +2697,7 @@ function createRoom() {
         startNetworkMonitoring();
     } catch (error) {
         console.error('방 생성 중 오류:', error);
-        handleConnectionError('방 생성 중 오류가 발생했습니다: ' + error.message);
+        handleConnectionError(t('room_creation_error', { error: error.message }));
     }
 }
 
@@ -1316,7 +2709,7 @@ function joinRoom(roomId) {
     try {
         // 초대 코드 검증 (4자리 영숫자만 허용)
         if (!/^[a-z0-9]{4}$/i.test(roomId)) {
-            handleConnectionError('유효하지 않은 초대 코드입니다. 4자리 코드를 입력해주세요.');
+            handleConnectionError(t('invalid_invite_code'));
             return;
         }
         
@@ -1368,7 +2761,7 @@ function joinRoom(roomId) {
         startNetworkMonitoring();
     } catch (error) {
         console.error('방 참여 중 오류:', error);
-        handleConnectionError('방 참여 중 오류가 발생했습니다: ' + error.message);
+        handleConnectionError(t('room_join_error', { error: error.message }));
     }
 }
 
@@ -1382,23 +2775,23 @@ function connectToHost(hostId) {
     // 피어ID가 존재하는지 확인
     if (!appState.localUserId) {
         console.error('로컬 피어 ID가 설정되지 않았습니다.');
-        handleConnectionError('연결 초기화 오류. 다시 시도해주세요.');
+        handleConnectionError(t('connection_init_error'));
         return;
     }
     
     try {
         const conn = appState.peer.connect(hostId, {
             reliable: true,
-            serialization: 'json' // JSON 직렬화 사용 (추가)
+            serialization: 'json' // JSON 직렬화 사용
         });
         
         // 연결 시간 초과 처리
         const connectionTimeout = setTimeout(() => {
             if (!appState.connections[hostId]) {
                 console.error('호스트 연결 시간 초과');
-                handleConnectionError('호스트 연결 시간이 초과되었습니다. 초대 코드를 다시 확인해주세요.');
+                handleConnectionError(t('host_connection_timeout'));
             }
-        }, 20000); // 20초 타임아웃 (증가)
+        }, 20000); // 20초 타임아웃
         
         conn.on('open', () => {
             console.log('호스트에 연결됨');
@@ -1438,11 +2831,11 @@ function connectToHost(hostId) {
         
         conn.on('error', (err) => {
             console.error('호스트 연결 오류:', err);
-            handleConnectionError('호스트 연결 중 오류가 발생했습니다: ' + err.message);
+            handleConnectionError(t('host_connection_error', { error: err.message }));
         });
     } catch (err) {
         console.error('호스트 연결 시도 중 예외 발생:', err);
-        handleConnectionError('연결 시도 중 오류가 발생했습니다: ' + err.message);
+        handleConnectionError(t('connection_attempt_error', { error: err.message }));
     }
 }
 
@@ -1464,7 +2857,7 @@ function startNetworkMonitoring() {
             
             // 모든 연결이 끊어진 경우 (호스트 제외)
             if (connectedPeers === 0 && !appState.isHost) {
-                updateConnectionStatus('연결 끊김', 'disconnected');
+                updateConnectionStatus(t('connection_lost'), 'disconnected');
                 
                 // 재연결 시도
                 if (appState.peer && appState.peer.disconnected) {
@@ -1524,8 +2917,8 @@ function setupPeerEvents() {
                 onConnectionSuccess();
                 
                 // 시스템 메시지 추가
-                addSystemMessage(`방이 생성되었습니다. 초대 코드: ${appState.roomId}`);
-                addSystemMessage('다른 사용자를 초대하려면 상단의 [초대하기] 버튼을 클릭하세요.');
+                addSystemMessage(t('room_created', { code: appState.roomId }));
+                addSystemMessage(t('invite_instruction'));
             }
         });
         
@@ -1567,7 +2960,7 @@ function setupPeerEvents() {
                             targetId: conn.peer,
                             fromId: appState.localUserId,
                             fromName: appState.localUserName,
-                            message: '이 방에서 차단되었습니다.'
+                            message: t('banned_from_room')
                         });
                         
                         // 연결 종료
@@ -1593,6 +2986,40 @@ function setupPeerEvents() {
                         }
                     });
                     
+                    // 삭제된 메시지 목록 동기화
+                    if (Object.keys(appState.deletedMessages).length > 0) {
+                        sendData(conn, {
+                            type: 'system',
+                            action: 'sync_deleted_messages',
+                            deletedMessages: appState.deletedMessages
+                        });
+                    }
+                    
+                    // 채널 목록 동기화
+                    Object.entries(appState.channels).forEach(([channelId, channel]) => {
+                        if (channelId !== 'general') {
+                            sendData(conn, {
+                                type: 'channel',
+                                action: 'create',
+                                channelId: channelId,
+                                channelName: channel.name,
+                                channelType: channel.type || 'text'
+                            });
+                        }
+                    });
+                    
+                    // 음성 채널 목록 동기화
+                    Object.entries(appState.voiceChannels).forEach(([channelId, channel]) => {
+                        if (channelId !== 'voice-general') {
+                            sendData(conn, {
+                                type: 'channel',
+                                action: 'create_voice',
+                                channelId: channelId,
+                                channelName: channel.name
+                            });
+                        }
+                    });
+                    
                     // 새 유저 연결 정보를 다른 모든 유저에게 알림
                     Object.entries(appState.connections).forEach(([peerId, peerConn]) => {
                         if (peerId !== conn.peer) {
@@ -1603,15 +3030,6 @@ function setupPeerEvents() {
                             });
                         }
                     });
-                    
-                    // 삭제된 메시지 목록 동기화
-                    if (Object.keys(appState.deletedMessages).length > 0) {
-                        sendData(conn, {
-                            type: 'system',
-                            action: 'sync_deleted_messages',
-                            deletedMessages: appState.deletedMessages
-                        });
-                    }
                 }
                 
                 // 자신이 호스트임을 알림
@@ -1623,6 +3041,18 @@ function setupPeerEvents() {
                         isHost: true
                     });
                 }
+                
+                // 현재 음성 채널 상태 전송
+                Object.entries(appState.voiceChannels).forEach(([channelId, channel]) => {
+                    if (channel.users && channel.users.length > 0) {
+                        sendData(conn, {
+                            type: 'voice',
+                            action: 'channel_status',
+                            channelId: channelId,
+                            users: channel.users
+                        });
+                    }
+                });
             });
             
             conn.on('close', () => {
@@ -1635,46 +3065,117 @@ function setupPeerEvents() {
             });
         });
         
+        // 음성 통화 수신 이벤트
+        appState.peer.on('call', (mediaConnection) => {
+            console.log('음성 통화 수신:', mediaConnection.peer);
+            
+            // 현재 보이스 채널에 참여 중이 아니면 거부
+            if (!appState.currentVoiceChannel || !appState.localStream) {
+                console.log('음성 통화 수신 거부: 음성 채널 비활성화');
+                mediaConnection.close();
+                return;
+            }
+            
+            // 상대방이 참여한 채널이 다르면 거부
+            const peerChannelId = Object.entries(appState.voiceChannels).find(([id, channel]) => 
+                channel.users && channel.users.includes(mediaConnection.peer)
+            )?.[0];
+            
+            if (peerChannelId !== appState.currentVoiceChannel) {
+                console.log('음성 통화 수신 거부: 다른 채널');
+                mediaConnection.close();
+                return;
+            }
+            
+            // 로컬 스트림으로 응답
+            mediaConnection.answer(appState.localStream);
+            
+            // 연결 정보 저장
+            appState.voiceConnections[mediaConnection.peer] = {
+                mediaConnection: mediaConnection,
+                remoteStream: null
+            };
+            
+            // 상대방 스트림 처리
+            mediaConnection.on('stream', (remoteStream) => {
+                console.log('음성 스트림 수신:', mediaConnection.peer);
+                appState.voiceConnections[mediaConnection.peer].remoteStream = remoteStream;
+                
+                // 헤드셋 상태에 따라 초기 음소거
+                if (appState.isDeafened) {
+                    remoteStream.getAudioTracks().forEach(track => {
+                        track.enabled = false;
+                    });
+                }
+                
+                // 오디오 요소 생성 및 재생
+                const audioEl = new Audio();
+                audioEl.srcObject = remoteStream;
+                audioEl.autoplay = true;
+                
+                // 연결 정보에 오디오 요소 저장
+                appState.voiceConnections[mediaConnection.peer].audioElement = audioEl;
+                
+                // 음성 사용자 UI 업데이트
+                updateVoiceUsers();
+            });
+            
+            // 연결 종료 이벤트
+            mediaConnection.on('close', () => {
+                console.log('음성 연결 종료:', mediaConnection.peer);
+                
+                // 연결 정보에서 제거
+                delete appState.voiceConnections[mediaConnection.peer];
+                
+                // 음성 사용자 UI 업데이트
+                updateVoiceUsers();
+            });
+            
+            mediaConnection.on('error', (err) => {
+                console.error('음성 연결 오류:', mediaConnection.peer, err);
+            });
+        });
+        
         appState.peer.on('error', (err) => {
             console.error('PeerJS 오류:', err);
             
             // 특정 오류 처리
             if (err.type === 'peer-unavailable') {
-                handleConnectionError('해당 방이 존재하지 않거나 호스트가 오프라인 상태입니다.');
+                handleConnectionError(t('peer_unavailable'));
             } else if (err.type === 'network' || err.type === 'server-error') {
-                handleConnectionError('네트워크 연결 오류가 발생했습니다. 인터넷 연결을 확인해주세요.');
+                handleConnectionError(t('network_connection_error'));
             } else if (err.type === 'socket-error') {
-                handleConnectionError('소켓 연결 오류. 브라우저 또는 네트워크 방화벽 설정을 확인해주세요.');
+                handleConnectionError(t('socket_connection_error'));
             } else {
-                handleConnectionError(`연결 중 오류가 발생했습니다: ${err.message || err.type}`);
+                handleConnectionError(t('connection_error', { error: err.message || err.type }));
             }
         });
         
         appState.peer.on('disconnected', () => {
             console.log('PeerJS 서버와 연결 끊김');
-            updateConnectionStatus('서버와 연결 끊김', 'disconnected');
+            updateConnectionStatus(t('server_disconnected'), 'disconnected');
             
             // 자동 재연결 시도
             setTimeout(() => {
                 if (appState.peer && appState.connectionRetryCount < MAX_RETRY_COUNT) {
                     appState.connectionRetryCount++;
                     console.log(`재연결 시도 ${appState.connectionRetryCount}/${MAX_RETRY_COUNT}`);
-                    updateConnectionStatus(`재연결 시도 중 (${appState.connectionRetryCount}/${MAX_RETRY_COUNT})...`, 'waiting');
+                    updateConnectionStatus(t('reconnecting', { count: appState.connectionRetryCount, max: MAX_RETRY_COUNT }), 'waiting');
                     appState.peer.reconnect();
                 } else {
-                    handleConnectionError('서버와 연결할 수 없습니다. 다시 시도해주세요.');
+                    handleConnectionError(t('server_unreachable'));
                 }
             }, 1000);
         });
         
         appState.peer.on('close', () => {
             console.log('PeerJS 연결 닫힘');
-            updateConnectionStatus('연결 종료됨', 'disconnected');
+            updateConnectionStatus(t('connection_closed'), 'disconnected');
             appState.connectionEstablished = false;
         });
     } catch (error) {
         console.error('PeerJS 이벤트 리스너 설정 중 오류:', error);
-        handleConnectionError('PeerJS 이벤트 설정 중 오류가 발생했습니다: ' + error.message);
+        handleConnectionError(t('peerjs_event_error', { error: error.message }));
     }
 }
 
@@ -1769,10 +3270,13 @@ function handleConnectionError(message) {
         }
         
         // 연결 상태 업데이트
-        updateConnectionStatus('연결 실패', 'disconnected');
+        updateConnectionStatus(t('connection_failed'), 'disconnected');
         
         // 오류 알림 표시
         showToast(message, 5000, 'error');
+        
+        // 오류 효과음 재생
+        playNotificationSound('error');
         
         // 연결 정리
         if (appState.peer) {
@@ -1809,14 +3313,14 @@ function onConnectionSuccess() {
             if (UI.connectionModal) {
                 UI.connectionModal.classList.add('hidden');
             }
-            updateConnectionStatus(appState.isHost ? '대기 중 (0명)' : '연결됨', 
+            updateConnectionStatus(appState.isHost ? t('waiting_users', { count: 0 }) : t('connected'), 
                                   appState.isHost ? 'waiting' : 'connected');
             updateUsersList();
         }, 1000);
         
         // 호스트가 아닐 경우만 환영 메시지
         if (!appState.isHost) {
-            addSystemMessage(`채팅방 #${appState.roomId}에 입장했습니다.`);
+            addSystemMessage(t('joined_room', { room: appState.roomId }));
         }
         
         // 성공 알림음 재생
@@ -1851,7 +3355,7 @@ function updateConnectionStatus(text, status) {
 
 /**
  * 알림음 재생
- * @param {string} type - 알림 유형 (message, connect, error)
+ * @param {string} type - 알림 유형 (message, connect, error, voice_join, voice_leave)
  */
 function playNotificationSound(type) {
     // 알림 설정 확인
@@ -1859,23 +3363,34 @@ function playNotificationSound(type) {
     
     console.log('알림 소리 재생:', type);
     
-    // 안전한 방식으로 재구현
     try {
-        let audio = new Audio();
+        // 사운드 파일 경로 결정
+        let soundFile;
         switch (type) {
             case 'message':
-                audio.src = "data:audio/mp3;base64,SUQzAwAAAAAAD1RJVDIAAAAZAAADSSBhbSBzbyBzbGVlcHkgdG9kYXkAAA==";
+                soundFile = SOUNDS.MESSAGE;
                 break;
             case 'connect':
-                audio.src = "data:audio/mp3;base64,SUQzAwAAAAAAD1RJVDIAAAAZAAADSSBhbSBzbyBzbGVlcHkgdG9kYXkAAA==";
+                soundFile = SOUNDS.CONNECT;
                 break;
             case 'error':
-                audio.src = "data:audio/mp3;base64,SUQzAwAAAAAAD1RJVDIAAAAZAAADSSBhbSBzbyBzbGVlcHkgdG9kYXkAAA==";
+                soundFile = SOUNDS.ERROR;
+                break;
+            case 'voice_join':
+                soundFile = SOUNDS.VOICE_JOIN;
+                break;
+            case 'voice_leave':
+                soundFile = SOUNDS.VOICE_LEAVE;
+                break;
+            case 'disconnect':
+                soundFile = SOUNDS.DISCONNECT;
                 break;
             default:
-                return;
+                soundFile = SOUNDS.MESSAGE;
         }
         
+        // 오디오 객체 생성 및 재생
+        const audio = new Audio(AUDIO_PATH + soundFile);
         audio.volume = 0.5;
         
         // 안전하게 재생 시도
@@ -1886,10 +3401,47 @@ function playNotificationSound(type) {
                 // 재생 성공
             }).catch(e => {
                 console.warn('알림 소리 재생 실패:', e);
+                
+                // 오디오 API 사용 불가능한 경우 대체 사운드 재생
+                try {
+                    // Web Audio API로 간단한 비프음 재생
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+                    
+                    // 알림 유형에 따른 소리 조정
+                    if (type === 'error') {
+                        oscillator.type = 'sawtooth';
+                        oscillator.frequency.value = 440;
+                        gainNode.gain.value = 0.3;
+                        oscillator.start();
+                        setTimeout(() => oscillator.stop(), 300);
+                    } else if (type === 'connect') {
+                        oscillator.type = 'sine';
+                        oscillator.frequency.value = 587.33; // D5
+                        gainNode.gain.value = 0.2;
+                        oscillator.start();
+                        setTimeout(() => {
+                            oscillator.frequency.value = 659.25; // E5
+                            setTimeout(() => oscillator.stop(), 200);
+                        }, 200);
+                    } else {
+                        oscillator.type = 'sine';
+                        oscillator.frequency.value = 523.25; // C5
+                        gainNode.gain.value = 0.2;
+                        oscillator.start();
+                        setTimeout(() => oscillator.stop(), 200);
+                    }
+                } catch (e2) {
+                    console.warn('Web Audio API 대체 재생 실패:', e2);
+                }
             });
         }
-    } catch (e) {
-        console.warn('알림 소리 객체 생성 실패:', e);
+    } catch (error) {
+        console.error('알림 소리 재생 중 오류:', error);
     }
 }
 
@@ -1941,7 +3493,7 @@ function handleReceivedMessage(message, fromPeerId) {
                     
                     // 탭 활성화 상태가 아니면 제목에 알림 표시
                     if (document.visibilityState !== 'visible') {
-                        document.title = `(새 메시지) cchat - 채팅방 #${appState.roomId || ''}`;
+                        document.title = `${t('new_message')} cchat - ${t('room', { room: appState.roomId || '' })}`;
                     }
                     
                     // 알림음 재생
@@ -1975,7 +3527,7 @@ function handleReceivedMessage(message, fromPeerId) {
                     
                     // 파일 알림 (다른 사용자의 파일만)
                     if (message.userName !== appState.localUserName) {
-                        showDesktopNotification(message.userName, `파일 공유: ${message.fileName}`);
+                        showDesktopNotification(message.userName, t('file_shared', { name: message.fileName }));
                         
                         // 알림음 재생
                         playNotificationSound('message');
@@ -2003,11 +3555,117 @@ function handleReceivedMessage(message, fromPeerId) {
                 handleDeleteMessage(message);
                 break;
                 
+            case 'voice':
+                // 음성 채널 관련 메시지 처리
+                handleVoiceMessage(message, fromPeerId);
+                break;
+                
             default:
                 console.warn('알 수 없는 메시지 유형:', message.type);
         }
     } catch (error) {
         console.error('메시지 처리 중 오류:', error);
+    }
+}
+
+/**
+ * 음성 메시지 처리
+ * @param {Object} message - 음성 메시지
+ * @param {string} fromPeerId - 발신자 피어 ID
+ */
+function handleVoiceMessage(message, fromPeerId) {
+    try {
+        console.log('음성 메시지 수신:', message);
+        
+        switch (message.action) {
+            case 'join_channel':
+                // 사용자가 음성 채널에 참여
+                if (message.channelId && appState.voiceChannels[message.channelId]) {
+                    // 채널에 사용자 추가
+                    if (!appState.voiceChannels[message.channelId].users.includes(message.userId)) {
+                        appState.voiceChannels[message.channelId].users.push(message.userId);
+                    }
+                    
+                    // 음성 채널 목록 업데이트
+                    updateVoiceChannelsList();
+                    
+                    // 자신이 같은 채널에 있으면 연결 시도
+                    if (appState.currentVoiceChannel === message.channelId) {
+                        setTimeout(() => {
+                            createVoiceConnection(message.userId);
+                        }, 500);
+                    }
+                    
+                    // 시스템 메시지 표시
+                    const userName = appState.users[message.userId]?.name || message.userName;
+                    const channelName = appState.voiceChannels[message.channelId].name;
+                    addSystemMessage(t('user_joined_voice', { user: userName, channel: channelName }));
+                }
+                break;
+                
+            case 'leave_channel':
+                // 사용자가 음성 채널에서 나감
+                if (message.channelId && appState.voiceChannels[message.channelId]) {
+                    // 채널에서 사용자 제거
+                    appState.voiceChannels[message.channelId].users = 
+                        appState.voiceChannels[message.channelId].users.filter(id => id !== message.userId);
+                    
+                    // 음성 채널 목록 업데이트
+                    updateVoiceChannelsList();
+                    
+                    // 음성 연결 종료
+                    if (appState.voiceConnections[message.userId]) {
+                        if (appState.voiceConnections[message.userId].mediaConnection) {
+                            appState.voiceConnections[message.userId].mediaConnection.close();
+                        }
+                        delete appState.voiceConnections[message.userId];
+                    }
+                    
+                    // 음성 사용자 UI 업데이트
+                    updateVoiceUsers();
+                    
+                    // 시스템 메시지 표시
+                    const userName = appState.users[message.userId]?.name || message.userId;
+                    const channelName = appState.voiceChannels[message.channelId].name;
+                    addSystemMessage(t('user_left_voice', { user: userName, channel: channelName }));
+                }
+                break;
+                
+            case 'mute_status':
+                // 사용자의 음소거 상태 변경
+                if (message.userId && appState.voiceConnections[message.userId]) {
+                    appState.voiceConnections[message.userId].isMuted = message.isMuted;
+                    
+                    // 음성 사용자 UI 업데이트
+                    updateVoiceUsers();
+                }
+                break;
+                
+            case 'deafen_status':
+                // 사용자의 헤드셋 상태 변경
+                if (message.userId && appState.voiceConnections[message.userId]) {
+                    appState.voiceConnections[message.userId].isDeafened = message.isDeafened;
+                    
+                    // 음성 사용자 UI 업데이트
+                    updateVoiceUsers();
+                }
+                break;
+                
+            case 'channel_status':
+                // 채널 상태 업데이트 (사용자 목록)
+                if (message.channelId && appState.voiceChannels[message.channelId] && message.users) {
+                    appState.voiceChannels[message.channelId].users = message.users;
+                    
+                    // 음성 채널 목록 업데이트
+                    updateVoiceChannelsList();
+                }
+                break;
+                
+            default:
+                console.warn('알 수 없는 음성 메시지 액션:', message.action);
+        }
+    } catch (error) {
+        console.error('음성 메시지 처리 중 오류:', error);
     }
 }
 
@@ -2033,7 +3691,7 @@ function handleDeleteMessage(message) {
             } else {
                 const messageText = messageElement.querySelector('.message-text');
                 if (messageText) {
-                    messageText.innerHTML = '<em class="deleted-message">삭제된 메시지</em>';
+                    messageText.innerHTML = `<em class="deleted-message">${t('deleted_message')}</em>`;
                 }
                 
                 // 삭제 버튼 제거
@@ -2066,7 +3724,7 @@ function markMessageAsDeleted(messageId, channelId) {
             if (messageIndex !== -1) {
                 if (messages[messageIndex].type === 'chat') {
                     messages[messageIndex].deleted = true;
-                    messages[messageIndex].content = '[삭제된 메시지]';
+                    messages[messageIndex].content = t('deleted_message');
                 }
             }
         } else {
@@ -2076,7 +3734,7 @@ function markMessageAsDeleted(messageId, channelId) {
             if (messageIndex !== -1) {
                 if (appState.messageHistory[messageIndex].type === 'chat') {
                     appState.messageHistory[messageIndex].deleted = true;
-                    appState.messageHistory[messageIndex].content = '[삭제된 메시지]';
+                    appState.messageHistory[messageIndex].content = t('deleted_message');
                 }
             }
         }
@@ -2144,7 +3802,7 @@ function handleSystemMessage(message, fromPeerId) {
                 
                 // 새 사용자 안내 메시지
                 if (isNewUser && message.userId !== appState.localUserId) {
-                    addSystemMessage(`${message.userName}님이 입장했습니다.`);
+                    addSystemMessage(t('user_joined', { user: message.userName }));
                     
                     // 호스트가 아니고, 새로운 유저가 호스트가 아닌 경우
                     // 메시 네트워크를 구축하기 위해 직접 연결 시도
@@ -2184,6 +3842,11 @@ function handleSystemMessage(message, fromPeerId) {
             case 'host_change':
                 // 호스트 변경 알림
                 handleHostChange(message);
+                break;
+                
+            case 'host_transfer':
+                // 방장 권한 이임
+                handleHostTransfer(message);
                 break;
                 
             case 'host_info':
@@ -2249,7 +3912,7 @@ function handleSystemMessage(message, fromPeerId) {
                         if (messageElement) {
                             const messageText = messageElement.querySelector('.message-text');
                             if (messageText) {
-                                messageText.innerHTML = '<em class="deleted-message">삭제된 메시지</em>';
+                                messageText.innerHTML = `<em class="deleted-message">${t('deleted_message')}</em>`;
                             }
                             
                             // 삭제 버튼 제거
@@ -2278,7 +3941,7 @@ function handleHostChange(message) {
     try {
         // 기존 호스트 확인
         const oldHostId = appState.roomId;
-        const oldHostName = appState.users[oldHostId]?.name || '이전 방장';
+        const oldHostName = appState.users[oldHostId]?.name || t('previous_host');
         
         // 새 호스트 정보 업데이트
         const newHostId = message.newHostId;
@@ -2288,7 +3951,7 @@ function handleHostChange(message) {
         if (newHostId === appState.localUserId) {
             appState.isHost = true;
             appState.isAdmin = true;
-            showToast('방장 권한이 당신에게 위임되었습니다.');
+            showToast(t('host_permission_granted'));
         }
         
         // 사용자 역할 업데이트
@@ -2304,13 +3967,62 @@ function handleHostChange(message) {
         updateUsersList();
         
         // 시스템 메시지 표시
-        const newHostName = appState.users[newHostId]?.name || '새 방장';
-        addSystemMessage(`${oldHostName}님에서 ${newHostName}님으로 방장이 변경되었습니다.`);
+        const newHostName = appState.users[newHostId]?.name || t('new_host');
+        addSystemMessage(t('host_changed', { from: oldHostName, to: newHostName }));
         
         // URL 주소 업데이트
         updateUrlWithRoomId(newHostId);
     } catch (error) {
         console.error('호스트 변경 처리 중 오류:', error);
+    }
+}
+
+/**
+ * 방장 권한 이임 처리
+ * @param {Object} message - 방장 이임 메시지
+ */
+function handleHostTransfer(message) {
+    try {
+        // 현재 방장 확인
+        const currentHostId = message.currentHostId;
+        const currentHostName = appState.users[currentHostId]?.name || t('previous_host');
+        
+        // 새 방장 정보 업데이트
+        const newHostId = message.newHostId;
+        appState.roomId = newHostId;
+        
+        // 자신이 새 방장이 되었는지 확인
+        if (newHostId === appState.localUserId) {
+            appState.isHost = true;
+            appState.isAdmin = true;
+            showToast(t('host_permission_granted'));
+        } else {
+            // 이전 방장이 자신이었으면 호스트 권한 제거, 관리자로 변경
+            if (currentHostId === appState.localUserId) {
+                appState.isHost = false;
+            }
+        }
+        
+        // 사용자 역할 업데이트
+        if (appState.users[currentHostId]) {
+            appState.users[currentHostId].role = 'admin'; // 이전 방장은 관리자로
+        }
+        
+        if (appState.users[newHostId]) {
+            appState.users[newHostId].role = 'host';
+        }
+        
+        // 사용자 목록 업데이트
+        updateUsersList();
+        
+        // 시스템 메시지 표시
+        const newHostName = appState.users[newHostId]?.name || t('new_host');
+        addSystemMessage(t('host_transferred', { from: currentHostName, to: newHostName }));
+        
+        // URL 주소 업데이트
+        updateUrlWithRoomId(newHostId);
+    } catch (error) {
+        console.error('방장 권한 이임 처리 중 오류:', error);
     }
 }
 
@@ -2373,8 +4085,9 @@ function becomeNewHost() {
         });
         
         // 시스템 메시지 및 알림
-        addSystemMessage('이전 방장이 나갔습니다. 당신이 새로운 방장이 되었습니다.');
-        showToast('당신이 새로운 방장이 되었습니다.');
+        addSystemMessage(t('previous_host_left'));
+        addSystemMessage(t('you_are_new_host'));
+        showToast(t('you_are_new_host'));
         
         // URL 주소 업데이트
         updateUrlWithRoomId(appState.localUserId);
@@ -2389,6 +4102,22 @@ function becomeNewHost() {
  */
 function handlePeerDisconnect(peerId) {
     try {
+        // 음성 채널에서 사용자 제거
+        Object.keys(appState.voiceChannels).forEach(channelId => {
+            if (appState.voiceChannels[channelId].users) {
+                appState.voiceChannels[channelId].users = 
+                    appState.voiceChannels[channelId].users.filter(id => id !== peerId);
+            }
+        });
+        
+        // 음성 연결 종료
+        if (appState.voiceConnections[peerId]) {
+            if (appState.voiceConnections[peerId].mediaConnection) {
+                appState.voiceConnections[peerId].mediaConnection.close();
+            }
+            delete appState.voiceConnections[peerId];
+        }
+        
         // 사용자가 존재하는 경우 사용자 목록에서 제거
         if (appState.users[peerId]) {
             const userName = appState.users[peerId].name;
@@ -2404,19 +4133,28 @@ function handlePeerDisconnect(peerId) {
             // 사용자 목록 업데이트
             updateUsersList();
             
+            // 음성 채널 목록 업데이트
+            updateVoiceChannelsList();
+            
+            // 음성 사용자 UI 업데이트
+            updateVoiceUsers();
+            
             // 호스트가 아닌 경우, 호스트와의 연결 종료 감지
             if (!appState.isHost && peerId === appState.roomId) {
                 // 호스트가 나갔을 때 새 호스트 선출 시도
                 electNewHost();
             } else {
                 // 일반 사용자가 나간 경우 메시지 표시
-                let message = `${userName}님이 퇴장했습니다.`;
+                let message = t('user_left', { user: userName });
                 if (userRole === 'host') {
-                    message += ' (방장)';
+                    message += ` (${t('host')})`;
                 } else if (userRole === 'admin') {
-                    message += ' (관리자)';
+                    message += ` (${t('admin')})`;
                 }
                 addSystemMessage(message);
+                
+                // 접속 종료 효과음
+                playNotificationSound('disconnect');
             }
         }
         
@@ -2493,16 +4231,35 @@ function handleFileMessage(message, fromPeerId) {
                     messageId: message.messageId
                 };
                 
+                // 이미지 파일인지 확인
+                const isImage = message.fileType.startsWith('image/');
+                const isGif = message.fileType === 'image/gif';
+                
                 // 파일 전송 시작 메시지 표시
-                addFileTransferMessage(
-                    message.userName, 
-                    message.fileName, 
-                    message.fileSize, 
-                    message.fileId, 
-                    0,
-                    message.messageId,
-                    message.userId
-                );
+                if (isImage) {
+                    // 이미지 파일일 경우 로딩 표시
+                    addImageLoadingMessage(
+                        message.userName,
+                        message.fileName,
+                        message.fileSize,
+                        message.fileId,
+                        0,
+                        message.messageId,
+                        message.userId,
+                        isGif
+                    );
+                } else {
+                    // 일반 파일일 경우 다운로드 표시
+                    addFileTransferMessage(
+                        message.userName,
+                        message.fileName,
+                        message.fileSize,
+                        message.fileId,
+                        0,
+                        message.messageId,
+                        message.userId
+                    );
+                }
                 break;
                 
             case 'file_chunk':
@@ -2525,12 +4282,13 @@ function handleFileMessage(message, fromPeerId) {
                         const fileData = new Blob(fileInfo.chunks, { type: fileInfo.fileType });
                         const fileUrl = URL.createObjectURL(fileData);
                         
-                        // 파일 다운로드 링크 업데이트
-                        updateFileDownloadLink(message.fileId, fileUrl, fileInfo.fileName);
-                        
-                        // 이미지인 경우 미리보기 추가
+                        // 이미지인 경우 미리보기만 표시
                         if (fileInfo.fileType.startsWith('image/')) {
-                            addImagePreview(message.fileId, fileUrl);
+                            // 이미지 미리보기 추가
+                            addImagePreview(message.fileId, fileUrl, fileInfo.fileType === 'image/gif');
+                        } else {
+                            // 일반 파일이면 다운로드 링크 업데이트
+                            updateFileDownloadLink(message.fileId, fileUrl, fileInfo.fileName);
                         }
                         
                         // 청크 데이터 정리 (메모리 누수 방지)
@@ -2567,18 +4325,18 @@ function sendChatMessage() {
         
         // 타임아웃 상태 확인
         if (UI.messageInput.disabled) {
-            showToast('현재 채팅이 제한되어 있습니다.');
+            showToast(t('message_limit'));
             return;
         }
         
         // 연결이 없는 경우 처리
         if (!appState.connectionEstablished) {
-            showToast('연결이 설정되지 않았습니다. 메시지를 전송할 수 없습니다.');
+            showToast(t('connection_not_established'));
             return;
         }
         
         if (Object.keys(appState.connections).length === 0 && !appState.isHost) {
-            showToast('현재 연결된 사용자가 없습니다. 메시지를 전송할 수 없습니다.');
+            showToast(t('no_connected_users'));
             return;
         }
         
@@ -2618,7 +4376,7 @@ function sendChatMessage() {
             sendTypingStatus(false);
         } catch (err) {
             console.error('메시지 전송 중 오류:', err);
-            showToast('메시지 전송에 실패했습니다. 연결 상태를 확인해주세요.');
+            showToast(t('message_send_error'));
         }
     } catch (error) {
         console.error('채팅 메시지 전송 중 오류:', error);
@@ -2660,7 +4418,7 @@ function deleteMessage(messageId, channelId) {
         const hasPermission = isOwnMessage || appState.isAdmin || appState.isHost;
         
         if (!hasPermission) {
-            showToast('메시지 삭제 권한이 없습니다.');
+            showToast(t('no_delete_permission'));
             return;
         }
         
@@ -2690,12 +4448,12 @@ function handleFileSelection(e) {
         const file = e.target.files[0];
         if (!file) return;
         
-        console.log('파일 선택됨:', file.name, file.type, file.size);
+        console.log('파일 선택됨:', file.name, file.type,file.size);
         
         // 파일 크기 제한 (예: 30MB)
         const MAX_FILE_SIZE = 30 * 1024 * 1024;
         if (file.size > MAX_FILE_SIZE) {
-            showToast('파일 크기는 30MB를 초과할 수 없습니다.');
+            showToast(t('file_size_limit', { size: '30MB' }));
             return;
         }
         
@@ -2726,16 +4484,35 @@ function handleFileSelection(e) {
         // 파일 정보 메시지 broadcast
         broadcastMessage(fileInfoMessage);
         
+        // 이미지 파일인지 확인 및 처리
+        const isImage = file.type.startsWith('image/');
+        const isGif = file.type === 'image/gif';
+        
         // 파일 전송 시작 메시지 표시
-        addFileTransferMessage(
-            appState.localUserName, 
-            file.name, 
-            file.size, 
-            fileId, 
-            0,
-            messageId,
-            appState.localUserId
-        );
+        if (isImage) {
+            // 이미지 파일일 경우 로딩 표시
+            addImageLoadingMessage(
+                appState.localUserName,
+                file.name,
+                file.size,
+                fileId,
+                0,
+                messageId,
+                appState.localUserId,
+                isGif
+            );
+        } else {
+            // 일반 파일일 경우 다운로드 표시
+            addFileTransferMessage(
+                appState.localUserName,
+                file.name,
+                file.size,
+                fileId,
+                0,
+                messageId,
+                appState.localUserId
+            );
+        }
         
         // 파일 읽기 및 청크 전송
         const reader = new FileReader();
@@ -2771,13 +4548,15 @@ function handleFileSelection(e) {
                 } else {
                     console.log('파일 전송 완료:', fileId);
                     
-                    // 파일 URL 생성 및 다운로드 링크 업데이트
+                    // 파일 URL 생성
                     const fileUrl = URL.createObjectURL(file);
-                    updateFileDownloadLink(fileId, fileUrl, file.name);
                     
-                    // 이미지인 경우 미리보기 추가
-                    if (file.type.startsWith('image/')) {
-                        addImagePreview(fileId, fileUrl);
+                    // 이미지인 경우 미리보기만 표시
+                    if (isImage) {
+                        addImagePreview(fileId, fileUrl, isGif);
+                    } else {
+                        // 일반 파일이면 다운로드 링크 업데이트
+                        updateFileDownloadLink(fileId, fileUrl, file.name);
                     }
                 }
             };
@@ -2792,7 +4571,110 @@ function handleFileSelection(e) {
         if (UI.fileInput) UI.fileInput.value = '';
     } catch (error) {
         console.error('파일 선택 처리 중 오류:', error);
-        showToast('파일 처리 중 오류가 발생했습니다.', 3000, 'error');
+        showToast(t('file_process_error'), 3000, 'error');
+    }
+}
+
+/**
+ * 이미지 로딩 메시지 추가
+ * @param {string} userName - 사용자 이름
+ * @param {string} fileName - 파일 이름
+ * @param {number} fileSize - 파일 크기
+ * @param {string} fileId - 파일 ID
+ * @param {number} progress - 진행 상태
+ * @param {string} messageId - 메시지 ID
+ * @param {string} userId - 사용자 ID
+ * @param {boolean} isGif - GIF 이미지 여부
+ */
+function addImageLoadingMessage(userName, fileName, fileSize, fileId, progress, messageId, userId, isGif) {
+    try {
+        if (!UI.chatMessages) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message';
+        messageDiv.id = `file-message-${fileId}`;
+        
+        // 메시지 ID 설정 (있는 경우)
+        if (messageId) {
+            messageDiv.dataset.messageId = messageId;
+        }
+        
+        // 사용자 ID 설정 (있는 경우)
+        if (userId) {
+            messageDiv.dataset.userId = userId;
+        }
+        
+        // 채널 설정
+        messageDiv.dataset.channel = appState.currentChannel;
+        
+        const time = new Date();
+        const timeString = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+        const formattedSize = formatFileSize(fileSize);
+        
+        // 자신의 파일인지 확인
+        const isMe = userName === appState.localUserName;
+        
+        // 관리자 또는 호스트 여부 확인
+        const isAdmin = appState.users[userId] && (appState.users[userId].role === 'admin' || appState.users[userId].role === 'host');
+        
+        // 사용자 색상
+        const userColor = getColorFromName(userName);
+        
+        // 아바타 배경 설정
+        let avatarStyle = '';
+        if (userId && appState.users[userId] && appState.users[userId].avatar) {
+            avatarStyle = `background-image: url(${escapeHtml(appState.users[userId].avatar)}); background-color: transparent;`;
+        } else {
+            avatarStyle = `background-color: ${userColor};`;
+        }
+        
+        // 사용자 역할 배지
+        let userBadge = '';
+        if (userId && appState.users[userId]) {
+            if (appState.users[userId].role === 'host') {
+                userBadge = `<span class="user-role-badge host">${t('host')}</span>`;
+            } else if (appState.users[userId].role === 'admin') {
+                userBadge = `<span class="user-role-badge admin">${t('admin')}</span>`;
+            }
+        }
+        
+        // 삭제 버튼 (자신의 메시지 또는 관리자/호스트인 경우)
+        let deleteButton = '';
+        if (messageId && (isMe || appState.isAdmin || appState.isHost) && !appState.deletedMessages[messageId]) {
+            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">${t('delete')}</button>`;
+        }
+        
+        messageDiv.innerHTML = `
+            <div class="message-avatar" style="${avatarStyle}"></div>
+            <div class="message-content">
+                <div class="message-header">
+                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ` (${t('me')})` : ''}${userBadge}</span>
+                    <span class="message-time">${timeString}</span>
+                    ${deleteButton}
+                </div>
+                <div class="image-loading-container">
+                    <div class="image-loading-info">
+                        <div class="file-icon">${isGif ? '🎞️' : '🖼️'}</div>
+                        <div class="file-info">
+                            <div class="file-name">${escapeHtml(fileName)}</div>
+                            <div class="file-size">${formattedSize}</div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: ${progress}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="preview-${fileId}" class="file-preview"></div>
+                </div>
+            </div>
+        `;
+        
+        // 현재 채널이 메시지의 채널과 일치하는 경우에만 표시
+        if (appState.currentChannel === (messageDiv.dataset.channel || 'general')) {
+            UI.chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+        }
+    } catch (error) {
+        console.error('이미지 로딩 메시지 추가 중 오류:', error);
     }
 }
 
@@ -2818,7 +4700,7 @@ function broadcastMessage(message) {
                 appState.pendingMessages.push(message);
                 
                 // 연결 재시도 요청
-                showToast('서버와 연결이 끊겼습니다. 재연결 중...', 0, 'warning');
+                showToast(t('server_disconnected_reconnecting'), 0, 'warning');
                 
                 // 자동 재연결 시도
                 if (appState.peer && appState.peer.disconnected) {
@@ -2903,7 +4785,7 @@ function generateQRCode(data) {
         // QRCode 라이브러리가 있는지 확인
         if (typeof QRCode === 'undefined') {
             console.error('QRCode 라이브러리를 찾을 수 없습니다.');
-            UI.qrContainer.innerHTML = '<p>QR 코드 생성 실패</p>';
+            UI.qrContainer.innerHTML = `<p>${t('qr_code_generation_failed')}</p>`;
             return;
         }
         
@@ -2918,7 +4800,7 @@ function generateQRCode(data) {
     } catch (e) {
         console.error('QR 코드 생성 실패:', e);
         if (UI.qrContainer) {
-            UI.qrContainer.innerHTML = '<p>QR 코드 생성 실패</p>';
+            UI.qrContainer.innerHTML = `<p>${t('qr_code_generation_failed')}</p>`;
         }
     }
 }
@@ -2948,6 +4830,11 @@ function updateUrlWithRoomId(roomId) {
  */
 function cleanupConnections() {
     try {
+        // 음성 채널에 연결되어 있으면 종료
+        if (appState.currentVoiceChannel) {
+            leaveVoiceChannel();
+        }
+        
         // PeerJS 인스턴스 제거
         if (appState.peer) {
             appState.peer.destroy();
@@ -2963,6 +4850,7 @@ function cleanupConnections() {
         
         // UI 초기화
         updateUsersList();
+        updateVoiceChannelsList();
         updateTypingIndicator();
     } catch (error) {
         console.error('연결 정리 중 오류:', error);
@@ -2983,7 +4871,7 @@ function addChatMessage(userName, text, timestamp, messageId, userId) {
         
         // 삭제된 메시지인지 확인
         if (messageId && appState.deletedMessages[messageId]) {
-            text = '[삭제된 메시지]';
+            text = t('deleted_message');
         }
         
         const messageDiv = document.createElement('div');
@@ -3027,27 +4915,43 @@ function addChatMessage(userName, text, timestamp, messageId, userId) {
         let userBadge = '';
         if (userId && appState.users[userId]) {
             if (appState.users[userId].role === 'host') {
-                userBadge = '<span class="user-role-badge host">방장</span>';
+                userBadge = `<span class="user-role-badge host">${t('host')}</span>`;
             } else if (appState.users[userId].role === 'admin') {
-                userBadge = '<span class="user-role-badge admin">관리자</span>';
+                userBadge = `<span class="user-role-badge admin">${t('admin')}</span>`;
             }
         }
         
         // 삭제 버튼 (자신의 메시지 또는 관리자/호스트인 경우)
         let deleteButton = '';
         if (messageId && (isMe || appState.isAdmin || appState.isHost) && !appState.deletedMessages[messageId]) {
-            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">삭제</button>`;
+            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">${t('delete')}</button>`;
         }
+        
+        // 이모지 변환 (텍스트에 이모지가 있으면 크게 표시)
+        let processedText = text;
+        
+        // 링크 변환 (URL을 클릭 가능한 링크로 변환)
+        processedText = processedText.replace(
+            /(https?:\/\/[^\s]+)/g, 
+            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+        );
+        
+        // 순수 이모지만 있는지 확인 (이모지 + 공백)
+        const emojiRegex = /^(\p{Emoji}|\s)+$/u;
+        const isOnlyEmoji = emojiRegex.test(text);
+        
+        // 이모지만 있는 경우 큰 이모지 클래스 추가
+        const messageTextClass = isOnlyEmoji ? 'message-text big-emoji' : 'message-text';
         
         messageDiv.innerHTML = `
             <div class="message-avatar" style="${avatarStyle}"></div>
             <div class="message-content">
                 <div class="message-header">
-                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ' (나)' : ''}${userBadge}</span>
+                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ` (${t('me')})` : ''}${userBadge}</span>
                     <span class="message-time">${timeString}</span>
                     ${deleteButton}
                 </div>
-                <div class="message-text">${appState.deletedMessages[messageId] ? '<em class="deleted-message">삭제된 메시지</em>' : escapeHtml(text)}</div>
+                <div class="${messageTextClass}">${appState.deletedMessages[messageId] ? `<em class="deleted-message">${t('deleted_message')}</em>` : escapeHtml(processedText)}</div>
             </div>
         `;
         
@@ -3136,23 +5040,23 @@ function addFileTransferMessage(userName, fileName, fileSize, fileId, progress, 
         let userBadge = '';
         if (userId && appState.users[userId]) {
             if (appState.users[userId].role === 'host') {
-                userBadge = '<span class="user-role-badge host">방장</span>';
+                userBadge = `<span class="user-role-badge host">${t('host')}</span>`;
             } else if (appState.users[userId].role === 'admin') {
-                userBadge = '<span class="user-role-badge admin">관리자</span>';
+                userBadge = `<span class="user-role-badge admin">${t('admin')}</span>`;
             }
         }
         
         // 삭제 버튼 (자신의 메시지 또는 관리자/호스트인 경우)
         let deleteButton = '';
         if (messageId && (isMe || appState.isAdmin || appState.isHost) && !appState.deletedMessages[messageId]) {
-            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">삭제</button>`;
+            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">${t('delete')}</button>`;
         }
         
         messageDiv.innerHTML = `
             <div class="message-avatar" style="${avatarStyle}"></div>
             <div class="message-content">
                 <div class="message-header">
-                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ' (나)' : ''}${userBadge}</span>
+                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ` (${t('me')})` : ''}${userBadge}</span>
                     <span class="message-time">${timeString}</span>
                     ${deleteButton}
                 </div>
@@ -3165,7 +5069,7 @@ function addFileTransferMessage(userName, fileName, fileSize, fileId, progress, 
                             <div class="progress-bar" style="width: ${progress}%"></div>
                         </div>
                     </div>
-                    <button class="file-download" id="download-${fileId}" disabled>다운로드</button>
+                    <button class="file-download" id="download-${fileId}" disabled>${t('download')}</button>
                 </div>
                 <div id="preview-${fileId}" class="file-preview"></div>
             </div>
@@ -3238,16 +5142,36 @@ function updateFileDownloadLink(fileId, fileUrl, fileName) {
  * 이미지 미리보기 추가
  * @param {string} fileId - 파일 ID
  * @param {string} imageUrl - 이미지 URL
+ * @param {boolean} isGif - GIF 이미지 여부
  */
-function addImagePreview(fileId, imageUrl) {
+function addImagePreview(fileId, imageUrl, isGif) {
     try {
         const previewDiv = document.getElementById(`preview-${fileId}`);
         if (!previewDiv) return;
         
+        // 로딩 표시기 제거
+        const imageLoadingContainer = document.querySelector(`.message:has(#preview-${fileId}) .image-loading-container`);
+        if (imageLoadingContainer) {
+            const loadingInfo = imageLoadingContainer.querySelector('.image-loading-info');
+            if (loadingInfo) {
+                loadingInfo.classList.add('hidden');
+            }
+        }
+        
+        // 이미지 요소 생성
         const img = document.createElement('img');
         img.src = imageUrl;
         img.className = 'image-preview';
-        img.onclick = () => window.open(imageUrl, '_blank');
+        
+        // GIF인 경우 특별 클래스 추가
+        if (isGif) {
+            img.classList.add('gif-preview');
+        }
+        
+        // 클릭 시 원본 크기로 보기
+        img.onclick = () => {
+            showImageFullscreen(imageUrl);
+        };
         
         previewDiv.appendChild(img);
         scrollToBottom();
@@ -3257,74 +5181,143 @@ function addImagePreview(fileId, imageUrl) {
 }
 
 /**
- * 사용자 목록 업데이트
+ * 이미지 전체화면 보기
+ * @param {string} imageUrl - 이미지 URL
  */
-function updateUsersList() {
+function showImageFullscreen(imageUrl) {
     try {
-        if (!UI.usersList) return;
+        // 모달 컨테이너 생성
+        let imageModal = document.getElementById('imageViewerModal');
         
-        UI.usersList.innerHTML = '';
-        
-        // 사용자 목록 생성
-        Object.entries(appState.users).forEach(([userId, user]) => {
-            const userDiv = document.createElement('div');
-            userDiv.className = 'user-item';
-            userDiv.dataset.userId = userId;
+        if (!imageModal) {
+            imageModal = document.createElement('div');
+            imageModal.id = 'imageViewerModal';
+            imageModal.className = 'modal-overlay image-viewer-modal';
             
-            // 상태 클래스 추가
-            const userStatus = user.status || 'online';
-            userDiv.classList.add(`status-${userStatus}`);
-            
-            // 자신인지 확인
-            const isMe = userId === appState.localUserId;
-            
-            // 아바타 배경 설정
-            let avatarStyle = '';
-            if (user.avatar) {
-                avatarStyle = `background-image: url(${escapeHtml(user.avatar)}); background-color: transparent;`;
-            } else {
-                const userColor = getColorFromName(user.name);
-                avatarStyle = `background-color: ${userColor};`;
-            }
-            
-            // 사용자 역할 배지
-            let roleBadge = '';
-            if (user.role === 'host') {
-                roleBadge = '<span class="user-role-badge host">방장</span>';
-            } else if (user.role === 'admin') {
-                roleBadge = '<span class="user-role-badge admin">관리자</span>';
-            }
-            
-            // 상태 아이콘
-            let statusTitle = '온라인';
-            if (userStatus === 'away') statusTitle = '자리 비움';
-            if (userStatus === 'dnd') statusTitle = '방해 금지';
-            
-            const statusIcon = `<span class="user-status-icon status-${userStatus}" title="${statusTitle}"></span>`;
-            
-            userDiv.innerHTML = `
-                <div class="user-item-avatar" style="${avatarStyle}"></div>
-                <div class="user-item-info">
-                    <div class="user-item-name">${escapeHtml(user.name)}${isMe ? ' (나)' : ''}${roleBadge}</div>
-                    ${statusIcon}
+            imageModal.innerHTML = `
+                <div class="image-viewer-container">
+                    <img src="" id="fullsizeImage" class="fullsize-image" />
+                    <button class="close-image-viewer">&times;</button>
                 </div>
             `;
             
-            // 관리자인 경우 사용자 클릭 이벤트 추가
-            if ((appState.isHost || appState.isAdmin) && !isMe) {
-                userDiv.style.cursor = 'pointer';
-                userDiv.addEventListener('click', () => {
-                    showUserManageModal(userId);
-                });
-            }
+            document.body.appendChild(imageModal);
             
-            UI.usersList.appendChild(userDiv);
-        });
+            // 닫기 버튼 이벤트
+            const closeBtn = imageModal.querySelector('.close-image-viewer');
+            closeBtn.addEventListener('click', () => {
+                imageModal.classList.add('hidden');
+            });
+            
+            // 모달 배경 클릭 시 닫기
+            imageModal.addEventListener('click', (e) => {
+                if (e.target === imageModal) {
+                    imageModal.classList.add('hidden');
+                }
+            });
+        }
         
-        // 연결 상태 UI 업데이트
-        updateConnectionStatusFromPeers();
+        // 이미지 설정 및 표시
+        const fullsizeImage = document.getElementById('fullsizeImage');
+        if (fullsizeImage) {
+            fullsizeImage.src = imageUrl;
+        }
+        
+        imageModal.classList.remove('hidden');
     } catch (error) {
-        console.error('사용자 목록 업데이트 중 오류:', error);
+        console.error('이미지 전체화면 보기 중 오류:', error);
+    }
+}
+
+/**
+ * 파일 히스토리 메시지 추가 (링크없는 버전)
+ * @param {string} userName - 사용자 이름
+ * @param {string} fileName - 파일 이름
+ * @param {number} fileSize - 파일 크기
+ * @param {number} timestamp - 타임스탬프
+ * @param {string} messageId - 메시지 ID
+ * @param {string} userId - 사용자 ID
+ */
+function addFileHistoryMessage(userName, fileName, fileSize, timestamp, messageId, userId) {
+    try {
+        if (!UI.chatMessages) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message';
+        
+        // 메시지 ID 설정 (있는 경우)
+        if (messageId) {
+            messageDiv.id = `message-${messageId}`;
+            messageDiv.dataset.messageId = messageId;
+        }
+        
+        // 사용자 ID 설정 (있는 경우)
+        if (userId) {
+            messageDiv.dataset.userId = userId;
+        }
+        
+        // 채널 설정
+        messageDiv.dataset.channel = appState.currentChannel;
+        
+        const time = new Date(timestamp);
+        const timeString = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+        const formattedSize = formatFileSize(fileSize);
+        
+        // 자신의 파일인지 확인
+        const isMe = userName === appState.localUserName;
+        
+        // 관리자 또는 호스트 여부 확인
+        const isAdmin = appState.users[userId] && (appState.users[userId].role === 'admin' || appState.users[userId].role === 'host');
+        
+        // 사용자 색상
+        const userColor = getColorFromName(userName);
+        
+        // 아바타 배경 설정
+        let avatarStyle = '';
+        if (userId && appState.users[userId] && appState.users[userId].avatar) {
+            avatarStyle = `background-image: url(${escapeHtml(appState.users[userId].avatar)}); background-color: transparent;`;
+        } else {
+            avatarStyle = `background-color: ${userColor};`;
+        }
+        
+        // 사용자 역할 배지
+        let userBadge = '';
+        if (userId && appState.users[userId]) {
+            if (appState.users[userId].role === 'host') {
+                userBadge = `<span class="user-role-badge host">${t('host')}</span>`;
+            } else if (appState.users[userId].role === 'admin') {
+                userBadge = `<span class="user-role-badge admin">${t('admin')}</span>`;
+            }
+        }
+        
+        // 삭제 버튼 (자신의 메시지 또는 관리자/호스트인 경우)
+        let deleteButton = '';
+        if (messageId && (isMe || appState.isAdmin || appState.isHost) && !appState.deletedMessages[messageId]) {
+            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">${t('delete')}</button>`;
+        }
+        
+        messageDiv.innerHTML = `
+            <div class="message-avatar" style="${avatarStyle}"></div>
+            <div class="message-content">
+                <div class="message-header">
+                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ` (${t('me')})` : ''}${userBadge}</span>
+                    <span class="message-time">${timeString}</span>
+                    ${deleteButton}
+                </div>
+                <div class="file-message">
+                    <div class="file-icon">📎</div>
+                    <div class="file-info">
+                        <div class="file-name">${escapeHtml(fileName)}</div>
+                        <div class="file-size">${formattedSize}</div>
+                        <div class="file-history-note">${t('previously_shared_file')}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        UI.chatMessages.appendChild(messageDiv);
+    } catch (error) {
+        console.error('파일 히스토리 메시지 추가 중 오류:', error);
     }
 }
 
@@ -3418,98 +5411,6 @@ function displayMessageHistory() {
 }
 
 /**
- * 파일 히스토리 메시지 추가 (링크없는 버전)
- * @param {string} userName - 사용자 이름
- * @param {string} fileName - 파일 이름
- * @param {number} fileSize - 파일 크기
- * @param {number} timestamp - 타임스탬프
- * @param {string} messageId - 메시지 ID
- * @param {string} userId - 사용자 ID
- */
-function addFileHistoryMessage(userName, fileName, fileSize, timestamp, messageId, userId) {
-    try {
-        if (!UI.chatMessages) return;
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'message';
-        
-        // 메시지 ID 설정 (있는 경우)
-        if (messageId) {
-            messageDiv.id = `message-${messageId}`;
-            messageDiv.dataset.messageId = messageId;
-        }
-        
-        // 사용자 ID 설정 (있는 경우)
-        if (userId) {
-            messageDiv.dataset.userId = userId;
-        }
-        
-        // 채널 설정
-        messageDiv.dataset.channel = appState.currentChannel;
-        
-        const time = new Date(timestamp);
-        const timeString = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-        const formattedSize = formatFileSize(fileSize);
-        
-        // 자신의 파일인지 확인
-        const isMe = userName === appState.localUserName;
-        
-        // 관리자 또는 호스트 여부 확인
-        const isAdmin = appState.users[userId] && (appState.users[userId].role === 'admin' || appState.users[userId].role === 'host');
-        
-        // 사용자 색상
-        const userColor = getColorFromName(userName);
-        
-        // 아바타 배경 설정
-        let avatarStyle = '';
-        if (userId && appState.users[userId] && appState.users[userId].avatar) {
-            avatarStyle = `background-image: url(${escapeHtml(appState.users[userId].avatar)}); background-color: transparent;`;
-        } else {
-            avatarStyle = `background-color: ${userColor};`;
-        }
-        
-        // 사용자 역할 배지
-        let userBadge = '';
-        if (userId && appState.users[userId]) {
-            if (appState.users[userId].role === 'host') {
-                userBadge = '<span class="user-role-badge host">방장</span>';
-            } else if (appState.users[userId].role === 'admin') {
-                userBadge = '<span class="user-role-badge admin">관리자</span>';
-            }
-        }
-        
-        // 삭제 버튼 (자신의 메시지 또는 관리자/호스트인 경우)
-        let deleteButton = '';
-        if (messageId && (isMe || appState.isAdmin || appState.isHost) && !appState.deletedMessages[messageId]) {
-            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">삭제</button>`;
-        }
-        
-        messageDiv.innerHTML = `
-            <div class="message-avatar" style="${avatarStyle}"></div>
-            <div class="message-content">
-                <div class="message-header">
-                    <span class="message-author" style="color: ${userColor}">${escapeHtml(userName)}${isMe ? ' (나)' : ''}${userBadge}</span>
-                    <span class="message-time">${timeString}</span>
-                    ${deleteButton}
-                </div>
-                <div class="file-message">
-                    <div class="file-icon">📎</div>
-                    <div class="file-info">
-                        <div class="file-name">${escapeHtml(fileName)}</div>
-                        <div class="file-size">${formattedSize}</div>
-                        <div class="file-history-note">이전에 공유된 파일입니다.</div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        UI.chatMessages.appendChild(messageDiv);
-    } catch (error) {
-        console.error('파일 히스토리 메시지 추가 중 오류:', error);
-    }
-}
-
-/**
  * 채널 메시지 처리
  * @param {Object} message - 채널 메시지
  */
@@ -3523,14 +5424,15 @@ function handleChannelMessage(message) {
                 if (!appState.channels[message.channelId]) {
                     appState.channels[message.channelId] = {
                         name: message.channelName,
-                        messages: []
+                        messages: [],
+                        type: message.channelType || 'text'
                     };
                     
                     // 채널 목록 업데이트
                     updateChannelsList();
                     
                     // 시스템 메시지 표시
-                    addSystemMessage(`새 채널 "${message.channelName}"이(가) 생성되었습니다.`);
+                    addSystemMessage(t('new_channel_created', { name: message.channelName }));
                 }
                 break;
                 
@@ -3549,7 +5451,44 @@ function handleChannelMessage(message) {
                     updateChannelsList();
                     
                     // 시스템 메시지 표시
-                    addSystemMessage(`채널 "${channelName}"이(가) 삭제되었습니다.`);
+                    addSystemMessage(t('channel_deleted', { name: channelName }));
+                }
+                break;
+                
+            case 'create_voice':
+                // 음성 채널 생성
+                if (!appState.voiceChannels[message.channelId]) {
+                    appState.voiceChannels[message.channelId] = {
+                        name: message.channelName,
+                        users: [],
+                        type: 'voice'
+                    };
+                    
+                    // 음성 채널 목록 업데이트
+                    updateVoiceChannelsList();
+                    
+                    // 시스템 메시지 표시
+                    addSystemMessage(t('new_voice_channel_created', { name: message.channelName }));
+                }
+                break;
+                
+            case 'delete_voice':
+                // 음성 채널 삭제
+                if (appState.voiceChannels[message.channelId]) {
+                    const channelName = appState.voiceChannels[message.channelId].name;
+                    
+                    // 현재 참여 중인 채널이면 나가기
+                    if (appState.currentVoiceChannel === message.channelId) {
+                        leaveVoiceChannel();
+                    }
+                    
+                    delete appState.voiceChannels[message.channelId];
+                    
+                    // 음성 채널 목록 업데이트
+                    updateVoiceChannelsList();
+                    
+                    // 시스템 메시지 표시
+                    addSystemMessage(t('voice_channel_deleted', { name: channelName }));
                 }
                 break;
                 
@@ -3574,10 +5513,10 @@ function handleAdminMessage(message) {
                 // 관리자 승격
                 if (message.targetId === appState.localUserId) {
                     appState.isAdmin = true;
-                    showToast('관리자 권한이 부여되었습니다.');
+                    showToast(t('admin_permission_granted'));
                     
                     // 시스템 메시지 표시
-                    addSystemMessage('관리자 권한이 부여되었습니다.');
+                    addSystemMessage(t('admin_permission_granted'));
                 }
                 
                 // 대상 사용자 정보 업데이트
@@ -3588,7 +5527,7 @@ function handleAdminMessage(message) {
                     // 다른 사용자인 경우 시스템 메시지 표시
                     if (message.targetId !== appState.localUserId) {
                         const userName = appState.users[message.targetId].name;
-                        addSystemMessage(`${userName}님이 관리자가 되었습니다.`);
+                        addSystemMessage(t('user_promoted_to_admin', { user: userName }));
                     }
                 }
                 break;
@@ -3597,10 +5536,10 @@ function handleAdminMessage(message) {
                 // 관리자 강등
                 if (message.targetId === appState.localUserId) {
                     appState.isAdmin = false;
-                    showToast('관리자 권한이 제거되었습니다.');
+                    showToast(t('admin_permission_removed'));
                     
                     // 시스템 메시지 표시
-                    addSystemMessage('관리자 권한이 제거되었습니다.');
+                    addSystemMessage(t('admin_permission_removed'));
                 }
                 
                 // 대상 사용자 정보 업데이트
@@ -3611,7 +5550,7 @@ function handleAdminMessage(message) {
                     // 다른 사용자인 경우 시스템 메시지 표시
                     if (message.targetId !== appState.localUserId) {
                         const userName = appState.users[message.targetId].name;
-                        addSystemMessage(`${userName}님의 관리자 권한이 제거되었습니다.`);
+                        addSystemMessage(t('admin_permission_removed_from_user', { user: userName }));
                     }
                 }
                 break;
@@ -3619,7 +5558,7 @@ function handleAdminMessage(message) {
             case 'kick':
                 // 강퇴
                 if (message.targetId === appState.localUserId) {
-                    showToast('강퇴되었습니다. 메인 화면으로 이동합니다.', 3000, 'error');
+                    showToast(t('you_were_kicked'), 3000, 'error');
                     
                     // 경고음 재생
                     playNotificationSound('error');
@@ -3632,14 +5571,14 @@ function handleAdminMessage(message) {
                 } else if (appState.users[message.targetId]) {
                     // 다른 사용자가 강퇴된 경우
                     const userName = appState.users[message.targetId].name;
-                    addSystemMessage(`${userName}님이 방에서 강퇴되었습니다.`);
+                    addSystemMessage(t('user_kicked', { user: userName }));
                 }
                 break;
                 
             case 'ban':
                 // 차단
                 if (message.targetId === appState.localUserId) {
-                    showToast('차단되었습니다. 메인 화면으로 이동합니다.', 3000, 'error');
+                    showToast(t('you_were_banned'), 3000, 'error');
                     
                     // 경고음 재생
                     playNotificationSound('error');
@@ -3657,7 +5596,7 @@ function handleAdminMessage(message) {
                 } else if (appState.users[message.targetId]) {
                     // 다른 사용자가 차단된 경우
                     const userName = appState.users[message.targetId].name;
-                    addSystemMessage(`${userName}님이 방에서 차단되었습니다.`);
+                    addSystemMessage(t('user_banned', { user: userName }));
                 }
                 break;
                 
@@ -3671,24 +5610,24 @@ function handleAdminMessage(message) {
                     
                     // 타임아웃 시간
                     const timeoutMinutes = message.duration || 5;
-                    showToast(`${timeoutMinutes}분 동안 채팅이 제한됩니다.`, 5000, 'warning');
+                    showToast(t('chat_restricted', { minutes: timeoutMinutes }), 5000, 'warning');
                     
                     // 시스템 메시지 표시
-                    addSystemMessage(`${timeoutMinutes}분 동안 채팅이 제한됩니다.`);
+                    addSystemMessage(t('chat_restricted', { minutes: timeoutMinutes }));
                     
                     // 타임아웃 해제 타이머
                     setTimeout(() => {
                         if (UI.messageInput) UI.messageInput.disabled = false;
                         if (UI.sendMessageBtn) UI.sendMessageBtn.disabled = false;
                         if (UI.fileInput) UI.fileInput.disabled = false;
-                        showToast('채팅 제한이 해제되었습니다.');
-                        addSystemMessage('채팅 제한이 해제되었습니다.');
+                        showToast(t('chat_restriction_lifted'));
+                        addSystemMessage(t('chat_restriction_lifted'));
                     }, timeoutMinutes * 60 * 1000);
                 } else if (appState.users[message.targetId]) {
                     // 다른 사용자가 타임아웃된 경우
                     const userName = appState.users[message.targetId].name;
                     const timeoutMinutes = message.duration || 5;
-                    addSystemMessage(`${userName}님이 ${timeoutMinutes}분 동안 채팅이 제한되었습니다.`);
+                    addSystemMessage(t('user_timed_out', { user: userName, minutes: timeoutMinutes }));
                 }
                 break;
                 
@@ -3721,7 +5660,25 @@ function updateChannelsList() {
                 channelDiv.classList.add('active');
             }
             
-            channelDiv.textContent = channel.name;
+            // 새 메시지 알림 표시 (현재 채널이 아닌 경우)
+            const hasNewMessages = channelId !== appState.currentChannel && 
+                channel.messages && 
+                channel.messages.length > 0 &&
+                channel.messages.some(msg => 
+                    msg.timestamp > appState.lastReadTimestamps?.[channelId] || 0 &&
+                    msg.userId !== appState.localUserId
+                );
+            
+            if (hasNewMessages) {
+                channelDiv.classList.add('has-new-messages');
+            }
+            
+            channelDiv.innerHTML = `
+                <div class="channel-content">
+                    <span class="channel-name">${escapeHtml(channel.name)}</span>
+                    ${hasNewMessages ? '<span class="new-messages-indicator"></span>' : ''}
+                </div>
+            `;
             
             // 채널 클릭 시 이벤트 처리
             channelDiv.addEventListener('click', () => {
@@ -3746,8 +5703,14 @@ function switchChannel(channelId) {
         
         // 채널 유효성 확인
         if (!appState.channels[channelId]) {
-            showToast('존재하지 않는 채널입니다.');
+            showToast(t('channel_not_found'));
             return;
+        }
+        
+        // 마지막 읽은 시간 저장 (이전 채널)
+        if (appState.currentChannel) {
+            appState.lastReadTimestamps = appState.lastReadTimestamps || {};
+            appState.lastReadTimestamps[appState.currentChannel] = Date.now();
         }
         
         // 현재 채널 변경
@@ -3761,7 +5724,7 @@ function switchChannel(channelId) {
         
         // 채팅방 제목 업데이트
         if (UI.roomName) {
-            UI.roomName.textContent = `채팅방 #${appState.roomId} - ${appState.channels[channelId].name}`;
+            UI.roomName.textContent = `${t('room', { room: appState.roomId })} - ${appState.channels[channelId].name}`;
         }
         
         // 타이핑 인디케이터 업데이트
@@ -3774,48 +5737,73 @@ function switchChannel(channelId) {
 /**
  * 새 채널 추가
  * @param {string} channelName - 채널 이름
+ * @param {string} type - 채널 유형 (text, voice)
  * @return {boolean} 성공 여부
  */
-function addChannel(channelName) {
+function addChannel(channelName, type = 'text') {
     try {
         // 채널 이름 유효성 검사
         if (!channelName || channelName.trim().length === 0) {
-            showToast('채널 이름을 입력해주세요.');
+            showToast(t('enter_channel_name'));
             return false;
         }
         
         // 중복 채널 이름 확인
-        const channelExists = Object.values(appState.channels).some(
+        const channelExists = Object.values(type === 'text' ? appState.channels : appState.voiceChannels).some(
             channel => channel.name.toLowerCase() === channelName.toLowerCase()
         );
         
         if (channelExists) {
-            showToast('이미 존재하는 채널 이름입니다.');
+            showToast(t('channel_name_exists'));
             return false;
         }
         
         // 채널 ID 생성 (고유 ID)
-        const channelId = 'channel_' + Date.now();
+        const channelId = type === 'text' ? 
+            'channel_' + Date.now() : 
+            'voice_' + Date.now();
         
-        // 로컬 채널 추가
-        appState.channels[channelId] = {
-            name: channelName,
-            messages: []
-        };
-        
-        // 채널 생성 메시지 브로드캐스트
-        broadcastMessage({
-            type: 'channel',
-            action: 'create',
-            channelId: channelId,
-            channelName: channelName
-        });
-        
-        // 채널 목록 업데이트
-        updateChannelsList();
-        
-        // 새 채널로 전환
-        switchChannel(channelId);
+        if (type === 'text') {
+            // 텍스트 채널 추가
+            appState.channels[channelId] = {
+                name: channelName,
+                messages: [],
+                type: 'text'
+            };
+            
+            // 채널 생성 메시지 브로드캐스트
+            broadcastMessage({
+                type: 'channel',
+                action: 'create',
+                channelId: channelId,
+                channelName: channelName,
+                channelType: 'text'
+            });
+            
+            // 채널 목록 업데이트
+            updateChannelsList();
+            
+            // 새 채널로 전환
+            switchChannel(channelId);
+        } else {
+            // 음성 채널 추가
+            appState.voiceChannels[channelId] = {
+                name: channelName,
+                users: [],
+                type: 'voice'
+            };
+            
+            // 채널 생성 메시지 브로드캐스트
+            broadcastMessage({
+                type: 'channel',
+                action: 'create_voice',
+                channelId: channelId,
+                channelName: channelName
+            });
+            
+            // 음성 채널 목록 업데이트
+            updateVoiceChannelsList();
+        }
         
         return true;
     } catch (error) {
@@ -3833,19 +5821,19 @@ function deleteChannel(channelId) {
     try {
         // 유효성 검사
         if (!appState.channels[channelId]) {
-            showToast('존재하지 않는 채널입니다.');
+            showToast(t('channel_not_found'));
             return false;
         }
         
         // 기본 채널은 삭제 불가
         if (channelId === 'general') {
-            showToast('기본 채널은 삭제할 수 없습니다.');
+            showToast(t('cannot_delete_general'));
             return false;
         }
         
         // 관리자 권한 확인
         if (!appState.isHost && !appState.isAdmin) {
-            showToast('채널 삭제 권한이 없습니다.');
+            showToast(t('no_channel_permission'));
             return false;
         }
         
@@ -3871,7 +5859,7 @@ function deleteChannel(channelId) {
         updateChannelsList();
         
         // 시스템 메시지 표시
-        addSystemMessage(`채널 "${channelName}"이(가) 삭제되었습니다.`);
+        addSystemMessage(t('channel_deleted', { name: channelName }));
         
         return true;
     } catch (error) {
@@ -3881,17 +5869,120 @@ function deleteChannel(channelId) {
 }
 
 /**
- * 채널 추가 프롬프트 표시
+ * 음성 채널 삭제
+ * @param {string} channelId - 삭제할 음성 채널 ID
+ * @return {boolean} 성공 여부
  */
-function showAddChannelPrompt() {
+function deleteVoiceChannel(channelId) {
     try {
-        const channelName = prompt('추가할 채널 이름을 입력하세요:');
+        // 유효성 검사
+        if (!appState.voiceChannels[channelId]) {
+            showToast(t('voice_channel_not_found'));
+            return false;
+        }
+        
+        // 기본 채널은 삭제 불가
+        if (channelId === 'voice-general') {
+            showToast(t('cannot_delete_general_voice'));
+            return false;
+        }
+        
+        // 관리자 권한 확인
+        if (!appState.isHost && !appState.isAdmin) {
+            showToast(t('no_channel_permission'));
+            return false;
+        }
+        
+        // 채널 이름 저장
+        const channelName = appState.voiceChannels[channelId].name;
+        
+        // 해당 채널의 모든 사용자에게 알림
+        if (appState.voiceChannels[channelId].users && appState.voiceChannels[channelId].users.length > 0) {
+            // 사용자들이 채널에서 나가도록 요청
+            broadcastMessage({
+                type: 'channel',
+                action: 'voice_channel_closing',
+                channelId: channelId,
+                channelName: channelName
+            });
+            
+            // 현재 참여 중인 채널이면 나가기
+            if (appState.currentVoiceChannel === channelId) {
+                leaveVoiceChannel();
+            }
+        }
+        
+        // 로컬 채널 삭제
+        delete appState.voiceChannels[channelId];
+        
+        // 채널 삭제 메시지 브로드캐스트
+        broadcastMessage({
+            type: 'channel',
+            action: 'delete_voice',
+            channelId: channelId
+        });
+        
+        // 음성 채널 목록 업데이트
+        updateVoiceChannelsList();
+        
+        // 시스템 메시지 표시
+        addSystemMessage(t('voice_channel_deleted', { name: channelName }));
+        
+        return true;
+    } catch (error) {
+        console.error('음성 채널 삭제 중 오류:', error);
+        return false;
+    }
+}
+
+/**
+ * 채널 추가 프롬프트 표시
+ * @param {string} type - 채널 유형 (text, voice)
+ */
+function showAddChannelPrompt(type = 'text') {
+    try {
+        const channelType = type === 'voice' ? t('voice_channel') : t('text_channel');
+        const channelName = prompt(t('enter_channel_name_prompt', { type: channelType }));
+        
         if (channelName && channelName.trim()) {
-            addChannel(channelName.trim());
+            addChannel(channelName.trim(), type);
         }
     } catch (error) {
         console.error('채널 추가 프롬프트 표시 중 오류:', error);
     }
+}
+
+/**
+ * 패널 표시/숨김 토글
+ * @param {string} panelId - 패널 ID
+ */
+function togglePanel(panelId) {
+    try {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        
+        if (panel.classList.contains('hidden')) {
+            panel.classList.remove('hidden');
+        } else {
+            panel.classList.add('hidden');
+        }
+    } catch (error) {
+        console.error('패널 토글 중 오류:', error);
+    }
+}
+
+/**
+ * 사용자 목록 표시/숨김 토글
+ */
+function toggleUsersPanel() {
+    togglePanel('usersPanel');
+}
+
+/**
+ * 채널 목록 표시/숨김 토글
+ */
+function toggleChannelsPanel() {
+    togglePanel('channelsPanel');
 }
 
 /**
@@ -3923,7 +6014,7 @@ function checkNotificationPermission() {
 function requestNotificationPermission() {
     try {
         if (!('Notification' in window)) {
-            showToast('이 브라우저는 알림을 지원하지 않습니다.');
+            showToast(t('notifications_not_supported'));
             return Promise.reject('notifications-not-supported');
         }
         
@@ -3933,10 +6024,10 @@ function requestNotificationPermission() {
                 updateNotificationUI();
                 
                 if (permission === 'granted') {
-                    showToast('알림 권한이 허용되었습니다.');
+                    showToast(t('notification_permission_granted'));
                     return true;
                 } else {
-                    showToast('알림 권한이 거부되었습니다. 브라우저 설정에서 권한을 변경할 수 있습니다.');
+                    showToast(t('notification_permission_denied'));
                     return false;
                 }
             });
@@ -4041,12 +6132,12 @@ function updateConnectionStatusFromPeers() {
         
         if (connections === 0) {
             if (appState.isHost) {
-                updateConnectionStatus('대기 중 (0명)', 'waiting');
+                updateConnectionStatus(t('waiting_users', { count: 0 }), 'waiting');
             } else {
-                updateConnectionStatus('연결 끊김', 'disconnected');
+                updateConnectionStatus(t('connection_lost'), 'disconnected');
             }
         } else {
-            updateConnectionStatus(`연결됨 (${connections}명)`, 'connected');
+            updateConnectionStatus(t('connected_with_users', { count: connections }), 'connected');
         }
     } catch (error) {
         console.error('연결 상태 업데이트 중 오류:', error);
@@ -4122,7 +6213,7 @@ function connectToPeer(peerId) {
  */
 function handleHostDisconnect() {
     try {
-        showToast('호스트와의 연결이 끊어졌습니다. 새 호스트 선출 중...', 5000, 'warning');
+        showToast(t('host_disconnected'), 5000, 'warning');
         
         // 새 호스트 선출 시도
         setTimeout(() => {
@@ -4134,56 +6225,143 @@ function handleHostDisconnect() {
 }
 
 /**
- * 로컬 스토리지 유틸리티
+ * 사용자 목록 업데이트
  */
-const LocalStorage = {
-    /**
-     * 로컬 스토리지에 데이터 저장
-     * @param {string} key - 키
-     * @param {*} data - 저장할 데이터
-     * @return {boolean} 성공 여부
-     */
-    save: function(key, data) {
-        try {
-            localStorage.setItem(key, JSON.stringify(data));
-            return true;
-        } catch (e) {
-            console.error('로컬 스토리지 저장 오류:', e);
-            return false;
-        }
-    },
-    
-    /**
-     * 로컬 스토리지에서 데이터 불러오기
-     * @param {string} key - 키
-     * @param {*} defaultValue - 기본값
-     * @return {*} 로드된 데이터
-     */
-    load: function(key, defaultValue = null) {
-        try {
-            const data = localStorage.getItem(key);
-            return data ? JSON.parse(data) : defaultValue;
-        } catch (e) {
-            console.error('로컬 스토리지 불러오기 오류:', e);
-            return defaultValue;
-        }
-    },
-    
-    /**
-     * 로컬 스토리지에서 데이터 삭제
-     * @param {string} key - 키
-     * @return {boolean} 성공 여부
-     */
-    remove: function(key) {
-        try {
-            localStorage.removeItem(key);
-            return true;
-        } catch (e) {
-            console.error('로컬 스토리지 삭제 오류:', e);
-            return false;
-        }
+function updateUsersList() {
+    try {
+        if (!UI.usersList) return;
+        
+        UI.usersList.innerHTML = '';
+        
+        // 사용자 목록 생성 (역할별로 정렬: 호스트 > 관리자 > 일반 사용자)
+        const sortedUsers = Object.entries(appState.users).sort((a, b) => {
+            const roleA = a[1].role;
+            const roleB = b[1].role;
+            
+            if (roleA === 'host' && roleB !== 'host') return -1;
+            if (roleA !== 'host' && roleB === 'host') return 1;
+            if (roleA === 'admin' && roleB !== 'admin') return -1;
+            if (roleA !== 'admin' && roleB === 'admin') return 1;
+            
+            return a[1].name.localeCompare(b[1].name);
+        });
+        
+        // 호스트, 관리자, 온라인, 자리비움, 방해금지 순으로 그룹 생성
+        const groups = {
+            'host': { title: t('hosts'), users: [] },
+            'admin': { title: t('admins'), users: [] },
+            'online': { title: t('online_users'), users: [] },
+            'away': { title: t('away_users'), users: [] },
+            'dnd': { title: t('dnd_users'), users: [] }
+        };
+        
+        // 사용자를 그룹에 배치
+        sortedUsers.forEach(([userId, user]) => {
+            if (user.role === 'host') {
+                groups.host.users.push([userId, user]);
+            } else if (user.role === 'admin') {
+                groups.admin.users.push([userId, user]);
+            } else if (user.status === 'away') {
+                groups.away.users.push([userId, user]);
+            } else if (user.status === 'dnd') {
+                groups.dnd.users.push([userId, user]);
+            } else {
+                groups.online.users.push([userId, user]);
+            }
+        });
+        
+        // 각 그룹 순회하며 UI 생성
+        Object.entries(groups).forEach(([groupKey, group]) => {
+            if (group.users.length === 0) return;
+            
+            // 그룹 헤더
+            const groupHeader = document.createElement('div');
+            groupHeader.className = 'users-group-header';
+            groupHeader.textContent = `${group.title} (${group.users.length})`;
+            UI.usersList.appendChild(groupHeader);
+            
+            // 그룹 내 사용자 순회
+            group.users.forEach(([userId, user]) => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'user-item';
+                userDiv.dataset.userId = userId;
+                
+                // 상태 클래스 추가
+                const userStatus = user.status || 'online';
+                userDiv.classList.add(`status-${userStatus}`);
+                
+                // 자신인지 확인
+                const isMe = userId === appState.localUserId;
+                
+                // 아바타 배경 설정
+                let avatarStyle = '';
+                if (user.avatar) {
+                    avatarStyle = `background-image: url(${escapeHtml(user.avatar)}); background-color: transparent;`;
+                } else {
+                    const userColor = getColorFromName(user.name);
+                    avatarStyle = `background-color: ${userColor};`;
+                }
+                
+                // 사용자 역할 배지
+                let roleBadge = '';
+                if (user.role === 'host') {
+                    roleBadge = `<span class="user-role-badge host">${t('host')}</span>`;
+                } else if (user.role === 'admin') {
+                    roleBadge = `<span class="user-role-badge admin">${t('admin')}</span>`;
+                }
+                
+                // 상태 아이콘
+                let statusTitle = t('status_online');
+                if (userStatus === 'away') statusTitle = t('status_away');
+                if (userStatus === 'dnd') statusTitle = t('status_dnd');
+                
+                const statusIcon = `<span class="user-status-icon status-${userStatus}" title="${statusTitle}"></span>`;
+                
+                // 음성 채널 아이콘 (현재 음성 채널에 있는 경우)
+                let voiceIcon = '';
+                let voiceChannelId = null;
+                Object.entries(appState.voiceChannels).forEach(([channelId, channel]) => {
+                    if (channel.users && channel.users.includes(userId)) {
+                        voiceChannelId = channelId;
+                        voiceIcon = `<span class="user-voice-icon" title="${t('in_voice_channel', { channel: channel.name })}">🔊</span>`;
+                    }
+                });
+                
+                userDiv.innerHTML = `
+                    <div class="user-item-avatar" style="${avatarStyle}"></div>
+                    <div class="user-item-info">
+                        <div class="user-item-name">${escapeHtml(user.name)}${isMe ? ` (${t('me')})` : ''}${roleBadge}</div>
+                        <div class="user-item-icons">
+                            ${statusIcon}
+                            ${voiceIcon}
+                        </div>
+                    </div>
+                `;
+                
+                // 관리자인 경우 사용자 클릭 이벤트 추가 (자신이 아닐 때만)
+                if ((appState.isHost || appState.isAdmin) && !isMe) {
+                    userDiv.style.cursor = 'pointer';
+                    userDiv.addEventListener('click', () => {
+                        showUserManageModal(userId);
+                    });
+                }
+                
+                // 음성 채널을 사용 중인 경우, 더블 클릭 시 동일 채널로 이동
+                if (voiceChannelId && !isMe) {
+                    userDiv.addEventListener('dblclick', () => {
+                        if (appState.currentVoiceChannel !== voiceChannelId) {
+                            joinVoiceChannel(voiceChannelId);
+                        }
+                    });
+                }
+                
+                UI.usersList.appendChild(userDiv);
+            });
+        });
+    } catch (error) {
+        console.error('사용자 목록 업데이트 중 오류:', error);
     }
-};
+}
 
 /**
  * 유틸리티 함수: 이름에서 색상 생성
@@ -4409,6 +6587,58 @@ function showToast(message, duration = 3000, type = 'info') {
         alert(message);
     }
 }
+
+/**
+ * 로컬 스토리지 유틸리티
+ */
+const LocalStorage = {
+    /**
+     * 로컬 스토리지에 데이터 저장
+     * @param {string} key - 키
+     * @param {*} data - 저장할 데이터
+     * @return {boolean} 성공 여부
+     */
+    save: function(key, data) {
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+            return true;
+        } catch (e) {
+            console.error('로컬 스토리지 저장 오류:', e);
+            return false;
+        }
+    },
+    
+    /**
+     * 로컬 스토리지에서 데이터 불러오기
+     * @param {string} key - 키
+     * @param {*} defaultValue - 기본값
+     * @return {*} 로드된 데이터
+     */
+    load: function(key, defaultValue = null) {
+        try {
+            const data = localStorage.getItem(key);
+            return data ? JSON.parse(data) : defaultValue;
+        } catch (e) {
+            console.error('로컬 스토리지 불러오기 오류:', e);
+            return defaultValue;
+        }
+    },
+    
+    /**
+     * 로컬 스토리지에서 데이터 삭제
+     * @param {string} key - 키
+     * @return {boolean} 성공 여부
+     */
+    remove: function(key) {
+        try {
+            localStorage.removeItem(key);
+            return true;
+        } catch (e) {
+            console.error('로컬 스토리지 삭제 오류:', e);
+            return false;
+        }
+    }
+};
 
 // 메시지 삭제 함수를 전역 스코프에 추가 (HTML에서 직접 호출용)
 window.deleteMessage = deleteMessage;
