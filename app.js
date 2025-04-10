@@ -1091,8 +1091,9 @@ function startPingProcess(connection) {
             clearInterval(connection.pingInterval);
             delete connection.pingInterval;
         }
-    }, 30000);
+    }, 30000); // 30초마다
 }
+
 // handleReceivedMessage 함수 상단에 추가
 // 핑 메시지 처리
 if (message.type === 'ping') {
@@ -1106,6 +1107,129 @@ if (message.type === 'ping') {
     }
     return; // 다른 처리 없이 종료
 }
+function setupConnectionPing(conn) {
+    if (!conn) return;
+    
+    // 이미 설정되어 있으면 제거
+    if (conn.pingInterval) {
+        clearInterval(conn.pingInterval);
+        delete conn.pingInterval;
+    }
+    
+    // 연결 상태 모니터링을 위한 데이터 초기화
+    if (!appState.peerConnectionStats[conn.peer]) {
+        appState.peerConnectionStats[conn.peer] = {
+            lastPingTime: 0,
+            lastPongTime: 0,
+            latency: 0,
+            missedPings: 0,
+            totalPings: 0
+        };
+    }
+    
+    // 30초마다 핑 메시지 전송
+    conn.pingInterval = setInterval(() => {
+        try {
+            // 연결이 여전히 유효한지 확인
+            if (conn.open) {
+                const pingTimestamp = Date.now();
+                
+                // 핑 전송
+                sendData(conn, { 
+                    type: 'ping', 
+                    timestamp: pingTimestamp 
+                });
+                
+                // 통계 업데이트
+                appState.peerConnectionStats[conn.peer].lastPingTime = pingTimestamp;
+                appState.peerConnectionStats[conn.peer].totalPings++;
+                
+                // 5초 안에 퐁이 오지 않으면 누락된 핑으로 카운트
+                conn.pongTimeout = setTimeout(() => {
+                    appState.peerConnectionStats[conn.peer].missedPings++;
+                    
+                    // 연속으로 3번 핑이 누락되면 연결 재시도
+                    if (appState.peerConnectionStats[conn.peer].missedPings >= 3) {
+                        console.warn(`피어 ${conn.peer}와의 연결이 불안정합니다. 재연결 시도...`);
+                        
+                        // 연결 재시도 로직
+                        retryConnection(conn.peer);
+                        
+                        // 카운터 초기화
+                        appState.peerConnectionStats[conn.peer].missedPings = 0;
+                    }
+                }, 5000); // 5초 타임아웃
+            } else {
+                // 연결이 닫혔다면 타이머 제거
+                clearInterval(conn.pingInterval);
+                delete conn.pingInterval;
+                
+                if (conn.pongTimeout) {
+                    clearTimeout(conn.pongTimeout);
+                    delete conn.pongTimeout;
+                }
+            }
+        } catch (e) {
+            console.warn('핑 전송 중 오류:', e);
+            
+            // 오류 발생 시 타이머 제거
+            clearInterval(conn.pingInterval);
+            delete conn.pingInterval;
+            
+            if (conn.pongTimeout) {
+                clearTimeout(conn.pongTimeout);
+                delete conn.pongTimeout;
+            }
+        }
+    }, 30000); // 30초마다
+    
+    // 퐁 메시지 처리 함수
+    conn.handlePong = function(timestamp, responseTime) {
+        // 퐁 타임아웃 취소
+        if (conn.pongTimeout) {
+            clearTimeout(conn.pongTimeout);
+            delete conn.pongTimeout;
+        }
+        
+        // 지연시간 계산
+        const latency = Date.now() - timestamp;
+        
+        // 통계 업데이트
+        if (appState.peerConnectionStats[conn.peer]) {
+            appState.peerConnectionStats[conn.peer].latency = latency;
+            appState.peerConnectionStats[conn.peer].lastPongTime = Date.now();
+            
+            // 누락된 핑 카운터 리셋
+            appState.peerConnectionStats[conn.peer].missedPings = 0;
+        }
+        
+        // 디버깅용 로그 (매우 높은 지연시간일 경우)
+        if (latency > 1000) {
+            console.warn(`피어 ${conn.peer}와의 높은 지연시간 감지: ${latency}ms`);
+        }
+    };
+    
+    // 원래 data 이벤트 핸들러를 백업
+    const originalDataHandler = conn.dataCallbacks._callbacks.data;
+    
+    // data 이벤트에 퐁 처리 로직 추가
+    conn.dataCallbacks._callbacks.data = function(data) {
+        // 퐁 메시지인 경우 특별 처리
+        if (data && data.type === 'pong' && data.timestamp) {
+            conn.handlePong(data.timestamp, data.responseTime);
+        }
+        
+        // 원래 핸들러 호출 (다른 메시지 처리)
+        if (originalDataHandler && originalDataHandler.length > 0) {
+            originalDataHandler.forEach(handler => {
+                handler(data);
+            });
+        }
+    };
+    
+    console.log(`피어 ${conn.peer}에 핑/퐁 메커니즘 설정 완료`);
+}
+
 
 // 퐁 메시지 처리
 if (message.type === 'pong') {
@@ -1117,6 +1241,23 @@ if (message.type === 'pong') {
     }
     appState.peerConnectionStats[fromPeerId].latency = latency;
     return; // 다른 처리 없이 종료
+}
+
+
+function retryConnection(peerId) {
+    // 이미 연결이 있으면 제거
+    if (appState.connections[peerId]) {
+        appState.connections[peerId].close();
+        delete appState.connections[peerId];
+    }
+    
+    // 잠시 대기 후 재연결
+    setTimeout(() => {
+        // 새 연결 시도
+        if (appState.peer && !appState.peer.disconnected) {
+            connectToPeer(peerId);
+        }
+    }, 1000);
 }
 /**
  * 이벤트 리스너 설정
@@ -3550,6 +3691,31 @@ function playNotificationSound(type) {
 function handleReceivedMessage(message, fromPeerId) {
     try {
         console.log('메시지 수신:', message);
+        
+        // 핑 메시지 처리 (함수 내부에 배치)
+        if (message.type === 'ping') {
+            // 핑에 대한 응답 전송
+            if (appState.connections[fromPeerId]) {
+                sendData(appState.connections[fromPeerId], { 
+                    type: 'pong', 
+                    timestamp: message.timestamp,
+                    responseTime: Date.now() 
+                });
+            }
+            return; // 함수 내부에서는 return 가능
+        }
+
+        // 퐁 메시지 처리
+        if (message.type === 'pong') {
+            // 핑-퐁 지연시간 계산 (연결 품질 모니터링용)
+            const latency = Date.now() - message.timestamp;
+            // 연결 통계에 저장
+            if (!appState.peerConnectionStats[fromPeerId]) {
+                appState.peerConnectionStats[fromPeerId] = {};
+            }
+            appState.peerConnectionStats[fromPeerId].latency = latency;
+            return; // 함수 내부에서는 return 가능
+        }
         
         // 호스트인 경우, 다른 모든 피어에게 메시지 중계
         if (appState.isHost && message.type !== 'system') {
@@ -6270,6 +6436,9 @@ function connectToPeer(peerId) {
                 handleReceivedMessage(data, peerId);
             });
             
+            // 핑 프로세스 시작 (연결 유지)
+            startPingProcess(conn);
+            
             // 자신의 정보 전송
             sendData(conn, {
                 type: 'system',
@@ -6289,6 +6458,12 @@ function connectToPeer(peerId) {
         conn.on('close', () => {
             console.log('피어 직접 연결 종료:', peerId);
             
+            // 핑 타이머 제거
+            if (conn.pingInterval) {
+                clearInterval(conn.pingInterval);
+                delete conn.pingInterval;
+            }
+            
             // 호스트가 아니고, 연결이 호스트였던 경우에만 특별 처리
             if (!appState.isHost && peerId === appState.roomId) {
                 handleHostDisconnect();
@@ -6299,12 +6474,17 @@ function connectToPeer(peerId) {
         
         conn.on('error', (err) => {
             console.error('피어 직접 연결 오류:', err);
+            
+            // 핑 타이머 제거
+            if (conn.pingInterval) {
+                clearInterval(conn.pingInterval);
+                delete conn.pingInterval;
+            }
         });
     } catch (err) {
         console.error('피어 직접 연결 시도 중 예외 발생:', err);
     }
 }
-
 /**
  * 호스트 연결 종료 감지 및 처리
  */
