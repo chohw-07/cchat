@@ -1140,7 +1140,7 @@ if (message.type === 'ping') {
             responseTime: Date.now() 
         });
     }
-    return; // 다른 처리 없이 종료
+     // 다른 처리 없이 종료
 }
 function setupConnectionPing(conn) {
     if (!conn) return;
