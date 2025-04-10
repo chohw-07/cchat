@@ -631,8 +631,7 @@ function setupUserManagementButtons() {
                 });
                 
                 document.getElementById('userManageModal').classList.add('hidden');
-                showToast('사용자를
-                강퇴했습니다.');
+                showToast('사용자를 강퇴했습니다.');
             }
         });
     }
