@@ -144,5 +144,20 @@
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <!-- 메인 스크립트 -->
     <script src="app.js"></script>
+    <!-- 애니메이션 키프레임 스타일 -->
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translate(-50%, 20px); }
+            to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translate(-50%, 0); }
+            to { opacity: 0; transform: translate(-50%, 20px); }
+        }
+        
+        .toast {
+            animation: fadeIn 0.3s, fadeOut 0.3s 2.7s;
+        }
+    </style>
 </body>
 </html>
