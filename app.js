@@ -774,38 +774,51 @@ function setupVoiceControls() {
  * 마이크 음소거/해제 토글
  */
 function toggleMicrophone() {
-    if (!appState.localStream) return;
-    
-    const audioTracks = appState.localStream.getAudioTracks();
-    if (audioTracks.length === 0) return;
-    
-    const isMuted = !audioTracks[0].enabled;
-    
-    audioTracks.forEach(track => {
-        track.enabled = isMuted;
-    });
-    
-    // UI 업데이트
-    if (UI.muteBtn) {
-        if (isMuted) {
-            UI.muteBtn.classList.remove('active');
-            UI.muteBtn.title = t('unmute');
-        } else {
-            UI.muteBtn.classList.add('active');
-            UI.muteBtn.title = t('mute');
-        }
-    }
-    
-    // 다른 사용자들에게 상태 알림
-    if (appState.currentVoiceChannel) {
-        broadcastMessage({
-            type: 'voice',
-            action: 'mute_status',
-            userId: appState.localUserId,
-            isMuted: !isMuted
+    try {
+        if (!appState.localStream) return;
+        
+        const audioTracks = appState.localStream.getAudioTracks();
+        if (audioTracks.length === 0) return;
+        
+        const isMuted = !audioTracks[0].enabled;
+        
+        audioTracks.forEach(track => {
+            track.enabled = isMuted;
         });
+        
+        // UI 업데이트
+        const muteBtn = document.getElementById('muteBtn');
+        if (muteBtn) {
+            if (isMuted) {
+                muteBtn.classList.remove('active');
+                muteBtn.title = t('unmute');
+                muteBtn.querySelector('.voice-btn-icon').textContent = '🎤';
+                muteBtn.querySelector('.voice-btn-text').textContent = t('mute');
+            } else {
+                muteBtn.classList.add('active');
+                muteBtn.title = t('mute');
+                muteBtn.querySelector('.voice-btn-icon').textContent = '🔇';
+                muteBtn.querySelector('.voice-btn-text').textContent = t('unmute');
+            }
+        }
+        
+        // 음성 사용자 목록 업데이트
+        updateVoiceUsers();
+        
+        // 다른 사용자들에게 상태 알림
+        if (appState.currentVoiceChannel) {
+            broadcastMessage({
+                type: 'voice',
+                action: 'mute_status',
+                userId: appState.localUserId,
+                isMuted: !isMuted
+            });
+        }
+    } catch (error) {
+        console.error('마이크 토글 중 오류:', error);
     }
 }
+
 
 /**
  * 헤드셋 토글 (소리 듣기/안듣기)
@@ -1333,15 +1346,16 @@ function setupConnectionPing(conn) {
     // 연결 상태 모니터링을 위한 데이터 초기화
     if (!appState.peerConnectionStats[conn.peer]) {
         appState.peerConnectionStats[conn.peer] = {
-            lastPingTime: 0,
-            lastPongTime: 0,
+            lastPingTime: Date.now(),
+            lastPongTime: Date.now(),
             latency: 0,
             missedPings: 0,
-            totalPings: 0
+            totalPings: 0,
+            isReconnecting: false
         };
     }
     
-    // 30초마다 핑 메시지 전송
+    // 15초마다 핑 메시지 전송 (더 빈번한 체크)
     conn.pingInterval = setInterval(() => {
         try {
             // 연결이 여전히 유효한지 확인
@@ -1358,21 +1372,24 @@ function setupConnectionPing(conn) {
                 appState.peerConnectionStats[conn.peer].lastPingTime = pingTimestamp;
                 appState.peerConnectionStats[conn.peer].totalPings++;
                 
-                // 5초 안에 퐁이 오지 않으면 누락된 핑으로 카운트
+                // 3초 안에 퐁이 오지 않으면 누락된 핑으로 카운트 (시간 단축)
                 conn.pongTimeout = setTimeout(() => {
-                    appState.peerConnectionStats[conn.peer].missedPings++;
+                    if (appState.peerConnectionStats[conn.peer]) {
+                        appState.peerConnectionStats[conn.peer].missedPings++;
                     
-                    // 연속으로 3번 핑이 누락되면 연결 재시도
-                    if (appState.peerConnectionStats[conn.peer].missedPings >= 3) {
-                        console.warn(`피어 ${conn.peer}와의 연결이 불안정합니다. 재연결 시도...`);
-                        
-                        // 연결 재시도 로직
-                        retryConnection(conn.peer);
-                        
-                        // 카운터 초기화
-                        appState.peerConnectionStats[conn.peer].missedPings = 0;
+                        // 연속으로 2번 핑이 누락되면 연결 재시도 (이전 3번에서 2번으로 단축)
+                        if (appState.peerConnectionStats[conn.peer].missedPings >= 2 &&
+                            !appState.peerConnectionStats[conn.peer].isReconnecting) {
+                            console.warn(`피어 ${conn.peer}와의 연결이 불안정합니다. 재연결 시도...`);
+                            
+                            // 재연결 상태 설정
+                            appState.peerConnectionStats[conn.peer].isReconnecting = true;
+                            
+                            // 연결 재시도 로직
+                            retryConnection(conn.peer);
+                        }
                     }
-                }, 5000); // 5초 타임아웃
+                }, 3000); // 3초 타임아웃 (이전 5초에서 단축)
             } else {
                 // 연결이 닫혔다면 타이머 제거
                 clearInterval(conn.pingInterval);
@@ -1381,6 +1398,12 @@ function setupConnectionPing(conn) {
                 if (conn.pongTimeout) {
                     clearTimeout(conn.pongTimeout);
                     delete conn.pongTimeout;
+                }
+                
+                // 닫힌 연결 재시도
+                if (appState.peerConnectionStats[conn.peer] && !appState.peerConnectionStats[conn.peer].isReconnecting) {
+                    appState.peerConnectionStats[conn.peer].isReconnecting = true;
+                    retryConnection(conn.peer);
                 }
             }
         } catch (e) {
@@ -1394,10 +1417,16 @@ function setupConnectionPing(conn) {
                 clearTimeout(conn.pongTimeout);
                 delete conn.pongTimeout;
             }
+            
+            // 오류 발생 시도 재연결 시도
+            if (appState.peerConnectionStats[conn.peer] && !appState.peerConnectionStats[conn.peer].isReconnecting) {
+                appState.peerConnectionStats[conn.peer].isReconnecting = true;
+                retryConnection(conn.peer);
+            }
         }
-    }, 30000); // 30초마다
+    }, 15000); // 15초마다 (이전 30초에서 단축)
     
-    // 퐁 메시지 처리 함수
+    // 퐁 메시지 처리 함수 개선
     conn.handlePong = function(timestamp, responseTime) {
         // 퐁 타임아웃 취소
         if (conn.pongTimeout) {
@@ -1415,10 +1444,13 @@ function setupConnectionPing(conn) {
             
             // 누락된 핑 카운터 리셋
             appState.peerConnectionStats[conn.peer].missedPings = 0;
+            
+            // 재연결 상태 해제
+            appState.peerConnectionStats[conn.peer].isReconnecting = false;
         }
         
-        // 디버깅용 로그 (매우 높은 지연시간일 경우)
-        if (latency > 1000) {
+        // 디버깅용 로그 (높은 지연시간일 경우)
+        if (latency > 500) { // 500ms 이상일 때 경고
             console.warn(`피어 ${conn.peer}와의 높은 지연시간 감지: ${latency}ms`);
         }
     };
@@ -1448,17 +1480,97 @@ function setupConnectionPing(conn) {
 
 
 function retryConnection(peerId) {
-    // 이미 연결이 있으면 제거
-    if (appState.connections[peerId]) {
-        appState.connections[peerId].close();
-        delete appState.connections[peerId];
-    }
-    setTimeout(() => {
-        // 새 연결 시도
-        if (appState.peer && !appState.peer.disconnected) {
-            connectToPeer(peerId);
+    try {
+        console.log(`피어 ${peerId}에 재연결 시도 중...`);
+        
+        // 이미 연결이 있으면 닫기
+        if (appState.connections[peerId]) {
+            try {
+                // 연결 종료 시도
+                appState.connections[peerId].close();
+            } catch (e) {
+                console.warn('연결 종료 중 오류:', e);
+            }
+            
+            // 기존 핑/퐁 타이머 정리
+            if (appState.connections[peerId].pingInterval) {
+                clearInterval(appState.connections[peerId].pingInterval);
+            }
+            if (appState.connections[peerId].pongTimeout) {
+                clearTimeout(appState.connections[peerId].pongTimeout);
+            }
+            
+            // 연결 객체 삭제
+            delete appState.connections[peerId];
         }
-    }, 1000);
+        
+        // 재연결 시도 횟수 제한
+        if (!appState.peerConnectionStats[peerId]) {
+            appState.peerConnectionStats[peerId] = {
+                reconnectAttempts: 0,
+                isReconnecting: true
+            };
+        } else {
+            appState.peerConnectionStats[peerId].reconnectAttempts = 
+                (appState.peerConnectionStats[peerId].reconnectAttempts || 0) + 1;
+        }
+        
+        // 최대 재시도 횟수 제한 (5회)
+        if (appState.peerConnectionStats[peerId].reconnectAttempts > 5) {
+            console.error(`최대 재연결 시도 횟수 초과: ${peerId}`);
+            
+            // 재연결 상태 해제
+            appState.peerConnectionStats[peerId].isReconnecting = false;
+            
+            // 연결 실패 처리
+            handlePeerDisconnect(peerId);
+            return;
+        }
+        
+        // 1초 후 새 연결 시도
+        setTimeout(() => {
+            // 새 연결 시도
+            if (appState.peer && !appState.peer.disconnected) {
+                connectToPeer(peerId);
+            } else if (appState.peer && appState.peer.disconnected) {
+                // PeerJS 자체가 연결 끊긴 경우, 먼저 재연결
+                console.log('PeerJS 서버에 재연결 시도 중...');
+                appState.peer.reconnect();
+                
+                // 재연결 후 피어 연결 시도
+                setTimeout(() => {
+                    if (appState.peer && !appState.peer.disconnected) {
+                        connectToPeer(peerId);
+                    } else {
+                        console.error('PeerJS 서버 재연결 실패');
+                        
+                        // 재연결 상태 해제
+                        if (appState.peerConnectionStats[peerId]) {
+                            appState.peerConnectionStats[peerId].isReconnecting = false;
+                        }
+                        
+                        // 연결 실패 처리
+                        handlePeerDisconnect(peerId);
+                    }
+                }, 2000); // PeerJS 재연결 후 2초 기다림
+            } else {
+                console.error('PeerJS 인스턴스가 없음');
+                
+                // 연결 실패 처리
+                handlePeerDisconnect(peerId);
+            }
+        }, 1000);
+    } catch (error) {
+        console.error('연결 재시도 중 오류:', error);
+        
+        // 재연결 상태 해제
+        if (appState.peerConnectionStats[peerId]) {
+            appState.peerConnectionStats[peerId].isReconnecting = false;
+        }
+        
+        // 연결 실패 처리
+        handlePeerDisconnect(peerId);
+    }
 }
 /**
  * 이벤트 리스너 설정
@@ -2070,6 +2182,12 @@ function joinVoiceChannel(channelId) {
             return;
         }
         
+        // 마이크 권한 요청 전 로딩 표시
+        if (UI.voiceControls) {
+            UI.voiceControls.innerHTML = '<div class="voice-loading">마이크 연결 중...</div>';
+            UI.voiceControls.classList.remove('hidden');
+        }
+        
         // 마이크 권한 요청
         navigator.mediaDevices.getUserMedia({
             audio: {
@@ -2084,14 +2202,16 @@ function joinVoiceChannel(channelId) {
             appState.currentVoiceChannel = channelId;
             
             // 채널에 자신을 추가
+            if (!appState.voiceChannels[channelId].users) {
+                appState.voiceChannels[channelId].users = [];
+            }
+            
             if (!appState.voiceChannels[channelId].users.includes(appState.localUserId)) {
                 appState.voiceChannels[channelId].users.push(appState.localUserId);
             }
             
-            // 음성 컨트롤 표시
-            if (UI.voiceControls) {
-                UI.voiceControls.classList.remove('hidden');
-            }
+            // 음성 컨트롤 표시 업데이트
+            updateVoiceControls();
             
             // 다른 사용자들에게 참여 알림
             broadcastMessage({
@@ -2122,12 +2242,74 @@ function joinVoiceChannel(channelId) {
         .catch(error => {
             console.error('마이크 권한 요청 중 오류:', error);
             showToast(t('microphone_permission_error') || '마이크 권한이 필요합니다.', 0, 'error');
+            
+            // 음성 컨트롤 숨김
+            if (UI.voiceControls) {
+                UI.voiceControls.classList.add('hidden');
+            }
         });
     } catch (error) {
         console.error('보이스 채널 참여 중 오류:', error);
+        
+        // 음성 컨트롤 숨김
+        if (UI.voiceControls) {
+            UI.voiceControls.classList.add('hidden');
+        }
     }
 }
-
+function updateVoiceControls() {
+    if (!UI.voiceControls) return;
+    
+    try {
+        // 현재 마이크 상태 확인
+        const isMuted = appState.localStream && 
+                      appState.localStream.getAudioTracks().length > 0 && 
+                      !appState.localStream.getAudioTracks()[0].enabled;
+        
+        // 헤드셋 상태 확인
+        const isDeafened = appState.isDeafened || false;
+        
+        // 음성 채널 이름 가져오기
+        const channelName = appState.currentVoiceChannel ? 
+                          appState.voiceChannels[appState.currentVoiceChannel]?.name || '음성 채팅' : 
+                          '음성 채팅';
+        
+        // 컨트롤 UI 업데이트
+        UI.voiceControls.innerHTML = `
+            <div class="voice-header">
+                <span class="voice-channel-name">${escapeHtml(channelName)}</span>
+            </div>
+            <div class="voice-buttons">
+                <button id="muteBtn" class="voice-btn ${isMuted ? 'active' : ''}" title="${isMuted ? t('unmute') : t('mute')}">
+                    <span class="voice-btn-icon">${isMuted ? '🔇' : '🎤'}</span>
+                    <span class="voice-btn-text">${isMuted ? t('unmute') : t('mute')}</span>
+                </button>
+                <button id="deafenBtn" class="voice-btn ${isDeafened ? 'active' : ''}" title="${isDeafened ? t('undeafen') : t('deafen')}">
+                    <span class="voice-btn-icon">${isDeafened ? '🔈' : '🔊'}</span>
+                    <span class="voice-btn-text">${isDeafened ? t('undeafen') : t('deafen')}</span>
+                </button>
+                <button id="disconnectBtn" class="voice-btn disconnect" title="${t('disconnect')}">
+                    <span class="voice-btn-icon">❌</span>
+                    <span class="voice-btn-text">${t('disconnect')}</span>
+                </button>
+            </div>
+            <div id="voiceUsers" class="voice-users"></div>
+        `;
+        
+        // 버튼 이벤트 다시 설정
+        document.getElementById('muteBtn').addEventListener('click', toggleMicrophone);
+        document.getElementById('deafenBtn').addEventListener('click', toggleDeafen);
+        document.getElementById('disconnectBtn').addEventListener('click', leaveVoiceChannel);
+        
+        // 음성 채널 참여 사용자 목록 업데이트
+        updateVoiceUsers();
+        
+        // 컨트롤 표시
+        UI.voiceControls.classList.remove('hidden');
+    } catch (error) {
+        console.error('음성 컨트롤 업데이트 중 오류:', error);
+    }
+}
 /**
  * 보이스 채널 나가기
  */
@@ -2703,22 +2885,34 @@ function updateStatusIndicator(userId, status) {
         // 사용자 목록에서 상태 표시
         const userItems = document.querySelectorAll(`.user-item[data-user-id="${userId}"]`);
         userItems.forEach(item => {
-            // 기존 상태 클래스 제거
-            item.classList.remove('status-online', 'status-away', 'status-dnd');
+            // 상태에 따른 색상 설정
+            let statusColor;
+            let statusTitle;
             
-            // 새 상태 클래스 추가
-            item.classList.add(`status-${status}`);
+            if (status === 'online') {
+                statusColor = '#3BA55C'; // 초록색
+                statusTitle = t('status_online');
+            } else if (status === 'away') {
+                statusColor = '#FAA61A'; // 노란색
+                statusTitle = t('status_away');
+            } else if (status === 'dnd') {
+                statusColor = '#ED4245'; // 빨간색
+                statusTitle = t('status_dnd');
+            } else {
+                statusColor = '#747F8D'; // 회색
+                statusTitle = t('status_offline');
+            }
             
-            // 상태 아이콘 업데이트
-            const statusIcon = item.querySelector('.user-status-icon');
-            if (statusIcon) {
-                statusIcon.className = `user-status-icon status-${status}`;
-                
-                let statusTitle = t('status_online');
-                if (status === 'away') statusTitle = t('status_away');
-                if (status === 'dnd') statusTitle = t('status_dnd');
-                
-                statusIcon.title = statusTitle;
+            // 상태 원형 아이콘 및 텍스트 업데이트
+            const statusCircle = item.querySelector('.user-status-circle');
+            if (statusCircle) {
+                statusCircle.style.backgroundColor = statusColor;
+                statusCircle.title = statusTitle;
+            }
+            
+            const statusText = item.querySelector('.user-status-text');
+            if (statusText) {
+                statusText.textContent = statusTitle;
             }
         });
     } catch (error) {
@@ -3359,6 +3553,19 @@ function setupPeerEvents() {
                 addSystemMessage(t('room_created', { code: appState.roomId }));
                 addSystemMessage(t('invite_instruction'));
             }
+            
+            // 대기 중인 메시지 처리
+            if (appState.pendingMessages && appState.pendingMessages.length > 0) {
+                console.log(`대기 중인 메시지 ${appState.pendingMessages.length}개 처리 중...`);
+                
+                const pendingMessages = [...appState.pendingMessages];
+                appState.pendingMessages = [];
+                
+                // 연결된 모든 피어에게 전송
+                pendingMessages.forEach(msg => {
+                    broadcastMessage(msg);
+                });
+            }
         });
         
         appState.peer.on('connection', (conn) => {
@@ -3374,6 +3581,9 @@ function setupPeerEvents() {
                 conn.on('data', (data) => {
                     handleReceivedMessage(data, conn.peer);
                 });
+                
+                // 핑 프로세스 설정
+                setupConnectionPing(conn);
                 
                 // 자신의 정보 전송
                 sendData(conn, {
@@ -3469,6 +3679,11 @@ function setupPeerEvents() {
                             });
                         }
                     });
+                    
+                    // 메시지 히스토리 전송 (약간 지연 시켜 다른 정보가 먼저 처리되게 함)
+                    setTimeout(() => {
+                        sendMessageHistory(conn.peer);
+                    }, 1000);
                 }
                 
                 // 자신이 호스트임을 알림
@@ -3492,15 +3707,31 @@ function setupPeerEvents() {
                         });
                     }
                 });
+                
+                // 연결 상태 업데이트
+                updateConnectionStatusFromPeers();
             });
             
             conn.on('close', () => {
                 console.log('피어 연결 종료:', conn.peer);
+                
+                // 연결 상태 정보 삭제
+                if (appState.peerConnectionStats[conn.peer]) {
+                    delete appState.peerConnectionStats[conn.peer];
+                }
+                
                 handlePeerDisconnect(conn.peer);
             });
             
             conn.on('error', (err) => {
                 console.error('피어 연결 오류:', err);
+                
+                // 오류 발생 시 재연결 시도
+                if (conn.peer) {
+                    setTimeout(() => {
+                        retryConnection(conn.peer);
+                    }, 2000);
+                }
             });
         });
         
@@ -3552,6 +3783,9 @@ function setupPeerEvents() {
                 audioEl.srcObject = remoteStream;
                 audioEl.autoplay = true;
                 
+                // 볼륨 설정 (기본값 0.8)
+                audioEl.volume = 0.8;
+                
                 // 연결 정보에 오디오 요소 저장
                 appState.voiceConnections[mediaConnection.peer].audioElement = audioEl;
                 
@@ -3572,6 +3806,13 @@ function setupPeerEvents() {
             
             mediaConnection.on('error', (err) => {
                 console.error('음성 연결 오류:', mediaConnection.peer, err);
+                
+                // 오류 발생 시 연결 재시도
+                if (appState.currentVoiceChannel) {
+                    setTimeout(() => {
+                        createVoiceConnection(mediaConnection.peer);
+                    }, 2000);
+                }
             });
         });
         
@@ -3583,8 +3824,26 @@ function setupPeerEvents() {
                 handleConnectionError(t('peer_unavailable'));
             } else if (err.type === 'network' || err.type === 'server-error') {
                 handleConnectionError(t('network_connection_error'));
+                
+                // 네트워크 오류 시 자동 재연결 시도
+                if (appState.peer) {
+                    setTimeout(() => {
+                        if (appState.peer && appState.peer.disconnected) {
+                            appState.peer.reconnect();
+                        }
+                    }, 3000);
+                }
             } else if (err.type === 'socket-error') {
                 handleConnectionError(t('socket_connection_error'));
+                
+                // 소켓 오류 시 자동 재연결 시도
+                if (appState.peer) {
+                    setTimeout(() => {
+                        if (appState.peer && appState.peer.disconnected) {
+                            appState.peer.reconnect();
+                        }
+                    }, 3000);
+                }
             } else {
                 handleConnectionError(t('connection_error', { error: err.message || err.type }));
             }
@@ -3896,12 +4155,12 @@ function handleReceivedMessage(message, fromPeerId) {
         // 핑/퐁 메시지 특별 처리
         if (message.type === 'ping') {
             handlePingMessage(message, fromPeerId);
-            return;
+            return; // 다른 처리 없이 종료
         }
         
         if (message.type === 'pong') {
             handlePongMessage(message, fromPeerId);
-            return;
+            return; // 다른 처리 없이 종료
         }
         
         // 호스트인 경우, 다른 모든 피어에게 메시지 중계
@@ -3909,17 +4168,7 @@ function handleReceivedMessage(message, fromPeerId) {
             // 메시지 중계: 발신자를 제외한 모든 피어에게 전달
             relayMessageToAllPeers(message, fromPeerId);
         }
-        if (message.type === 'ping') {
-            // 핑에 대한 응답 전송
-            if (appState.connections[fromPeerId]) {
-                sendData(appState.connections[fromPeerId], { 
-                    type: 'pong', 
-                    timestamp: message.timestamp,
-                    responseTime: Date.now() 
-                });
-            }
-             // 다른 처리 없이 종료
-        }
+        
         switch (message.type) {
             case 'chat':
                 // 삭제된 메시지인지 확인
@@ -3928,8 +4177,15 @@ function handleReceivedMessage(message, fromPeerId) {
                     return;
                 }
                 
+                // 채널 검증 - 메시지가 선언한 채널이 현재 존재하는지 확인
+                if (message.channel && !appState.channels[message.channel]) {
+                    console.warn(`존재하지 않는 채널로 메시지 수신: ${message.channel}`);
+                    // 기본 채널로 변경
+                    message.channel = 'general';
+                }
+                
                 // 채팅 메시지 표시
-                addChatMessage(message.userName, message.content, message.timestamp, message.messageId, message.userId);
+                addChatMessage(message.userName, message.content, message.timestamp, message.messageId, message.userId, message.channel);
                 
                 // 메시지 히스토리에 추가
                 if (message.channel) {
@@ -3975,6 +4231,11 @@ function handleReceivedMessage(message, fromPeerId) {
                     // 메시지 ID 추가
                     if (!message.messageId) {
                         message.messageId = generateMessageId();
+                    }
+                    
+                    // 채널 검증
+                    if (message.channel && !appState.channels[message.channel]) {
+                        message.channel = 'general';
                     }
                     
                     // 채널 정보가 있으면 채널 메시지로 추가
@@ -4797,6 +5058,13 @@ function sendChatMessage() {
         
         if (Object.keys(appState.connections).length === 0 && !appState.isHost) {
             showToast(t('no_connected_users'));
+            
+            // 연결 재시도
+            if (appState.roomId) {
+                console.log('연결이 없습니다. 호스트에 재연결 시도...');
+                connectToHost(appState.roomId);
+            }
+            
             return;
         }
         
@@ -4815,14 +5083,41 @@ function sendChatMessage() {
         
         try {
             // 메시지를 모든 피어에게 전송
-            broadcastMessage(chatMessage);
+            let messageSent = broadcastMessage(chatMessage);
+            
+            if (!messageSent && !appState.isHost) {
+                // 메시지 전송 실패 시, 호스트 연결 다시 시도
+                showToast(t('message_send_retry'));
+                connectToHost(appState.roomId);
+                
+                // 메시지를 대기열에 추가
+                appState.pendingMessages.push(chatMessage);
+                
+                // 입력 필드 초기화
+                UI.messageInput.value = '';
+                
+                // 타이핑 상태 종료
+                sendTypingStatus(false);
+                
+                return;
+            }
             
             // 자신의 메시지 표시
-            addChatMessage(appState.localUserName, messageText, chatMessage.timestamp, messageId, appState.localUserId);
+            addChatMessage(
+                appState.localUserName, 
+                messageText, 
+                chatMessage.timestamp, 
+                messageId, 
+                appState.localUserId,
+                appState.currentChannel
+            );
             
             // 메시지 히스토리에 추가
             if (appState.currentChannel && appState.channels[appState.currentChannel]) {
                 // 채널 메시지
+                if (!appState.channels[appState.currentChannel].messages) {
+                    appState.channels[appState.currentChannel].messages = [];
+                }
                 appState.channels[appState.currentChannel].messages.push(chatMessage);
             } else {
                 // 기본 메시지
@@ -4837,6 +5132,13 @@ function sendChatMessage() {
         } catch (err) {
             console.error('메시지 전송 중 오류:', err);
             showToast(t('message_send_error'));
+            
+            // 연결 확인 및 재시도
+            if (Object.keys(appState.connections).length === 0) {
+                if (appState.roomId) {
+                    connectToHost(appState.roomId);
+                }
+            }
         }
     } catch (error) {
         console.error('채팅 메시지 전송 중 오류:', error);
@@ -5144,23 +5446,54 @@ function addImageLoadingMessage(userName, fileName, fileSize, fileId, progress, 
  */
 function broadcastMessage(message) {
     try {
+        let messageSent = false;
+        
         if (appState.isHost) {
             // 호스트인 경우: 모든 연결된 피어에게 전송
-            Object.values(appState.connections).forEach(conn => {
-                sendData(conn, message);
-            });
+            const connectedPeers = Object.values(appState.connections);
+            
+            if (connectedPeers.length === 0) {
+                // 연결된 피어가 없음 - 호스트만 있는 상태
+                messageSent = true;
+            } else {
+                // 모든 연결된 피어에게 전송
+                let successCount = 0;
+                
+                connectedPeers.forEach(conn => {
+                    if (sendData(conn, message)) {
+                        successCount++;
+                    }
+                });
+                
+                messageSent = successCount > 0;
+            }
         } else {
             // 일반 유저인 경우: 호스트에게만 전송 (호스트가 중계)
             const hostConn = appState.connections[appState.roomId];
+            
             if (hostConn) {
-                sendData(hostConn, message);
+                messageSent = sendData(hostConn, message);
+                
+                if (!messageSent) {
+                    console.warn('호스트에 메시지 전송 실패.');
+                    
+                    // 연결 재시도
+                    retryConnection(appState.roomId);
+                    
+                    // 메시지를 대기열에 추가
+                    appState.pendingMessages.push(message);
+                }
             } else {
                 console.warn('호스트와 연결되지 않았습니다. 메시지 전송 불가.');
+                
                 // 연결이 없는 경우 큐에 저장
                 appState.pendingMessages.push(message);
                 
                 // 연결 재시도 요청
                 showToast(t('server_disconnected_reconnecting'), 0, 'warning');
+                
+                // 호스트에 재연결 시도
+                connectToHost(appState.roomId);
                 
                 // 자동 재연결 시도
                 if (appState.peer && appState.peer.disconnected) {
@@ -5168,8 +5501,11 @@ function broadcastMessage(message) {
                 }
             }
         }
+        
+        return messageSent;
     } catch (error) {
         console.error('메시지 브로드캐스트 중 오류:', error);
+        return false;
     }
 }
 
@@ -5186,14 +5522,84 @@ function sendData(connection, data) {
             return false;
         }
         
+        if (!connection.open) {
+            console.warn('닫힌 연결에 데이터 전송 시도:', connection.peer);
+            
+            // 연결이 닫혔을 때 재연결 시도
+            if (connection.peer) {
+                console.log(`연결이 닫혔습니다. ${connection.peer}에 재연결 시도...`);
+                retryConnection(connection.peer);
+                
+                // 전송 메시지 대기열에 추가
+                appState.pendingMessages = appState.pendingMessages || [];
+                appState.pendingMessages.push({
+                    peerId: connection.peer,
+                    data: data
+                });
+            }
+            
+            return false;
+        }
+        
+        // 배터리 세이버 모드를 위한 메시지 크기 제한
+        const messageSizeLimit = 100 * 1024; // 100KB
+        
+        // 데이터 크기 확인
+        const messageSize = JSON.stringify(data).length;
+        
+        if (messageSize > messageSizeLimit && data.type !== 'file') {
+            console.warn(`큰 메시지 감지: ${messageSize} bytes. 분할 전송 시도...`);
+            
+            // 큰 메시지 분할 전송 (파일 아닌 경우만)
+            try {
+                const jsonString = JSON.stringify(data);
+                const chunks = [];
+                const chunkSize = messageSizeLimit;
+                
+                for (let i = 0; i < jsonString.length; i += chunkSize) {
+                    chunks.push(jsonString.substring(i, i + chunkSize));
+                }
+                
+                // 분할 정보 전송
+                connection.send({
+                    type: 'chunked_message',
+                    totalChunks: chunks.length,
+                    messageId: Date.now().toString(36) + Math.random().toString(36).substr(2)
+                });
+                
+                // 각 청크 전송
+                chunks.forEach((chunk, index) => {
+                    connection.send({
+                        type: 'chunk',
+                        index: index,
+                        data: chunk,
+                        isLast: index === chunks.length - 1
+                    });
+                });
+                
+                return true;
+            } catch (e) {
+                console.error('메시지 분할 전송 중 오류:', e);
+                return false;
+            }
+        }
+        
+        // 일반 전송
         connection.send(data);
         return true;
     } catch (error) {
         console.error('데이터 전송 중 오류:', error);
+        
+        // 연결 상태 확인 및 재시도
+        if (connection && connection.peer) {
+            setTimeout(() => {
+                retryConnection(connection.peer);
+            }, 1000);
+        }
+        
         return false;
     }
 }
-
 /**
  * 초대 모달 표시
  */
@@ -5325,7 +5731,7 @@ function cleanupConnections() {
  * @param {string} messageId - 메시지 ID
  * @param {string} userId - 사용자 ID
  */
-function addChatMessage(userName, text, timestamp, messageId, userId) {
+function addChatMessage(userName, text, timestamp, messageId, userId, channelId) {
     try {
         if (!UI.chatMessages) return;
         
@@ -5348,8 +5754,9 @@ function addChatMessage(userName, text, timestamp, messageId, userId) {
             messageDiv.dataset.userId = userId;
         }
         
-        // 채널 설정
-        messageDiv.dataset.channel = appState.currentChannel;
+        // 채널 설정 - 메시지에 채널 ID가 있으면 사용, 없으면 현재 채널 사용
+        const msgChannelId = channelId || appState.currentChannel;
+        messageDiv.dataset.channel = msgChannelId;
         
         const time = new Date(timestamp);
         const timeString = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
@@ -5384,17 +5791,21 @@ function addChatMessage(userName, text, timestamp, messageId, userId) {
         // 삭제 버튼 (자신의 메시지 또는 관리자/호스트인 경우)
         let deleteButton = '';
         if (messageId && (isMe || appState.isAdmin || appState.isHost) && !appState.deletedMessages[messageId]) {
-            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${appState.currentChannel}')">${t('delete')}</button>`;
+            deleteButton = `<button class="message-delete-btn" onclick="deleteMessage('${messageId}', '${msgChannelId}')">${t('delete')}</button>`;
         }
         
-        // 이모지 변환 (텍스트에 이모지가 있으면 크게 표시)
-        let processedText = text;
-        
         // 링크 변환 (URL을 클릭 가능한 링크로 변환)
-        processedText = processedText.replace(
-            /(https?:\/\/[^\s]+)/g, 
-            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-        );
+        let processedText = appState.deletedMessages[messageId] ? 
+            `<em class="deleted-message">${t('deleted_message')}</em>` : 
+            escapeHtml(text);
+            
+        // 삭제된 메시지가 아닌 경우만 링크 처리
+        if (!appState.deletedMessages[messageId]) {
+            processedText = processedText.replace(
+                /(https?:\/\/[^\s]+)/g, 
+                '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+            );
+        }
         
         // 순수 이모지만 있는지 확인 (이모지 + 공백)
         const emojiRegex = /^(\p{Emoji}|\s)+$/u;
@@ -5411,7 +5822,7 @@ function addChatMessage(userName, text, timestamp, messageId, userId) {
                     <span class="message-time">${timeString}</span>
                     ${deleteButton}
                 </div>
-                <div class="${messageTextClass}">${appState.deletedMessages[messageId] ? `<em class="deleted-message">${t('deleted_message')}</em>` : escapeHtml(processedText)}</div>
+                <div class="${messageTextClass}">${processedText}</div>
             </div>
         `;
         
@@ -5839,15 +6250,22 @@ function displayMessageHistory() {
         // 현재 채널의 메시지 가져오기
         let messages = [];
         if (appState.currentChannel && appState.channels[appState.currentChannel]) {
-            messages = appState.channels[appState.currentChannel].messages;
+            messages = appState.channels[appState.currentChannel].messages || [];
         } else {
-            messages = appState.messageHistory;
+            messages = appState.messageHistory || [];
         }
         
         // 메시지 표시
         messages.forEach(message => {
             if (message.type === 'chat') {
-                addChatMessage(message.userName, message.content, message.timestamp, message.messageId, message.userId);
+                addChatMessage(
+                    message.userName, 
+                    message.content, 
+                    message.timestamp, 
+                    message.messageId, 
+                    message.userId,
+                    message.channel || appState.currentChannel
+                );
             } else if (message.type === 'file' && message.action === 'file_info') {
                 // 파일 메시지는 링크로만 표시 (실제 파일 데이터는 없음)
                 addFileHistoryMessage(
@@ -5960,44 +6378,49 @@ function handleChannelMessage(message) {
     }
 }
 function handlePingMessage(message, fromPeerId) {
-    // 핑에 대한 응답 전송
-    if (appState.connections[fromPeerId]) {
-        sendData(appState.connections[fromPeerId], { 
-            type: 'pong', 
-            timestamp: message.timestamp,
-            responseTime: Date.now() 
-        });
+    try {
+        // 핑에 대한 응답 전송
+        if (appState.connections[fromPeerId]) {
+            sendData(appState.connections[fromPeerId], { 
+                type: 'pong', 
+                timestamp: message.timestamp,
+                responseTime: Date.now() 
+            });
+        }
+    } catch (error) {
+        console.error('핑 메시지 처리 중 오류:', error);
     }
 }
 
 
 function handlePongMessage(message, fromPeerId) {
-    // 지연시간 계산
-    const latency = Date.now() - message.timestamp;
-    
-    // 연결 통계에 저장
-    if (!appState.peerConnectionStats[fromPeerId]) {
-        appState.peerConnectionStats[fromPeerId] = {};
-    }
-    
-    appState.peerConnectionStats[fromPeerId].latency = latency;
-    appState.peerConnectionStats[fromPeerId].lastPongTime = Date.now();
-    
-    // 연결 상태 로그 (디버깅용)
-    if (latency > 1000) {
-        console.warn(`피어 ${fromPeerId}와의 높은 지연시간 감지: ${latency}ms`);
-    }
-    
-    // 타임아웃이 설정되어 있으면 취소
-    if (appState.connections[fromPeerId] && 
-        appState.connections[fromPeerId].pongTimeout) {
-        clearTimeout(appState.connections[fromPeerId].pongTimeout);
-        delete appState.connections[fromPeerId].pongTimeout;
-    }
-    
-    // 누락된 핑 카운터 리셋
-    if (appState.peerConnectionStats[fromPeerId]) {
-        appState.peerConnectionStats[fromPeerId].missedPings = 0;
+    try {
+        // 연결 객체 확인
+        const conn = appState.connections[fromPeerId];
+        if (conn && conn.handlePong) {
+            conn.handlePong(message.timestamp, message.responseTime);
+        }
+        
+        // 지연시간 계산
+        const latency = Date.now() - message.timestamp;
+        
+        // 연결 통계에 저장
+        if (!appState.peerConnectionStats[fromPeerId]) {
+            appState.peerConnectionStats[fromPeerId] = {};
+        }
+        
+        appState.peerConnectionStats[fromPeerId].latency = latency;
+        appState.peerConnectionStats[fromPeerId].lastPongTime = Date.now();
+        
+        // 재연결 상태 해제
+        appState.peerConnectionStats[fromPeerId].isReconnecting = false;
+        
+        // 연결 상태 로그 (디버깅용)
+        if (latency > 500) {
+            console.warn(`피어 ${fromPeerId}와의 높은 지연시간 감지: ${latency}ms`);
+        }
+    } catch (error) {
+        console.error('퐁 메시지 처리 중 오류:', error);
     }
 }
 /**
@@ -6213,8 +6636,22 @@ function switchChannel(channelId) {
             appState.lastReadTimestamps[appState.currentChannel] = Date.now();
         }
         
+        // 이전 채널 요소 비활성화
+        const previousChannel = document.querySelector(`.channel[data-channel="${appState.currentChannel}"]`);
+        if (previousChannel) {
+            previousChannel.classList.remove('active');
+            previousChannel.classList.remove('has-new-messages');
+        }
+        
         // 현재 채널 변경
         appState.currentChannel = channelId;
+        
+        // 새 채널 요소 활성화
+        const newChannel = document.querySelector(`.channel[data-channel="${channelId}"]`);
+        if (newChannel) {
+            newChannel.classList.add('active');
+            newChannel.classList.remove('has-new-messages');
+        }
         
         // 채널 목록 UI 업데이트
         updateChannelsList();
@@ -6657,13 +7094,50 @@ function connectToPeer(peerId) {
         
         console.log('피어에 직접 연결 시도:', peerId);
         
+        if (!appState.peer || appState.peer.disconnected) {
+            console.error('PeerJS 연결이 없거나 연결 끊김');
+            // PeerJS 재연결 시도
+            if (appState.peer && appState.peer.disconnected) {
+                appState.peer.reconnect();
+                
+                // 재연결 후 연결 시도 (3초 후)
+                setTimeout(() => {
+                    if (appState.peer && !appState.peer.disconnected) {
+                        connectToPeer(peerId);
+                    }
+                }, 3000);
+            }
+            return;
+        }
+        
         const conn = appState.peer.connect(peerId, {
             reliable: true,
-            serialization: 'json' // JSON 직렬화 사용
+            serialization: 'json', // JSON 직렬화 사용
+            metadata: {
+                userId: appState.localUserId,
+                userName: appState.localUserName
+            }
         });
+        
+        // 연결 타임아웃 설정 (10초)
+        const connectionTimeout = setTimeout(() => {
+            if (!appState.connections[peerId]) {
+                console.error(`피어 ${peerId}에 연결 시간 초과`);
+                
+                // 재연결 시도
+                if (appState.peerConnectionStats[peerId] && 
+                    appState.peerConnectionStats[peerId].reconnectAttempts < 3) {
+                    console.log(`피어 ${peerId}에 재연결 시도...`);
+                    retryConnection(peerId);
+                }
+            }
+        }, 10000);
         
         conn.on('open', () => {
             console.log('피어에 직접 연결됨:', peerId);
+            
+            // 타임아웃 취소
+            clearTimeout(connectionTimeout);
             
             // 연결 정보 저장
             appState.connections[peerId] = conn;
@@ -6674,7 +7148,7 @@ function connectToPeer(peerId) {
             });
             
             // 핑 프로세스 시작 (연결 유지)
-            startPingProcess(conn);
+            setupConnectionPing(conn);
             
             // 자신의 정보 전송
             sendData(conn, {
@@ -6687,6 +7161,12 @@ function connectToPeer(peerId) {
                 isHost: appState.isHost, 
                 isAdmin: appState.isAdmin
             });
+            
+            // 재연결 상태 해제
+            if (appState.peerConnectionStats[peerId]) {
+                appState.peerConnectionStats[peerId].isReconnecting = false;
+                appState.peerConnectionStats[peerId].reconnectAttempts = 0;
+            }
             
             // 연결 상태 업데이트
             updateConnectionStatusFromPeers();
@@ -6701,6 +7181,11 @@ function connectToPeer(peerId) {
                 delete conn.pingInterval;
             }
             
+            if (conn.pongTimeout) {
+                clearTimeout(conn.pongTimeout);
+                delete conn.pongTimeout;
+            }
+            
             // 호스트가 아니고, 연결이 호스트였던 경우에만 특별 처리
             if (!appState.isHost && peerId === appState.roomId) {
                 handleHostDisconnect();
@@ -6712,14 +7197,38 @@ function connectToPeer(peerId) {
         conn.on('error', (err) => {
             console.error('피어 직접 연결 오류:', err);
             
+            // 타임아웃 취소
+            clearTimeout(connectionTimeout);
+            
             // 핑 타이머 제거
             if (conn.pingInterval) {
                 clearInterval(conn.pingInterval);
                 delete conn.pingInterval;
             }
+            
+            if (conn.pongTimeout) {
+                clearTimeout(conn.pongTimeout);
+                delete conn.pongTimeout;
+            }
+            
+            // 연결 오류 시 재연결 시도
+            if (appState.peerConnectionStats[peerId] &&
+                appState.peerConnectionStats[peerId].reconnectAttempts < 3) {
+                setTimeout(() => {
+                    retryConnection(peerId);
+                }, 2000); // 2초 후 재시도
+            }
         });
     } catch (err) {
         console.error('피어 직접 연결 시도 중 예외 발생:', err);
+        
+        // 에러 발생 시 재연결 시도
+        if (appState.peerConnectionStats[peerId] &&
+            appState.peerConnectionStats[peerId].reconnectAttempts < 3) {
+            setTimeout(() => {
+                retryConnection(peerId);
+            }, 5000); // 5초 후 재시도
+        }
     }
 }
 /**
@@ -6800,9 +7309,8 @@ function updateUsersList() {
                 userDiv.className = 'user-item';
                 userDiv.dataset.userId = userId;
                 
-                // 상태 클래스 추가
+                // 상태 클래스 추가 (상태 표시를 위한 클래스만 추가, 배경색은 변경 안함)
                 const userStatus = user.status || 'online';
-                userDiv.classList.add(`status-${userStatus}`);
                 
                 // 자신인지 확인
                 const isMe = userId === appState.localUserId;
@@ -6824,12 +7332,25 @@ function updateUsersList() {
                     roleBadge = `<span class="user-role-badge admin">${t('admin')}</span>`;
                 }
                 
-                // 상태 아이콘
+                // 상태 아이콘 - 원형으로 표시
+                let statusColor;
                 let statusTitle = t('status_online');
-                if (userStatus === 'away') statusTitle = t('status_away');
-                if (userStatus === 'dnd') statusTitle = t('status_dnd');
                 
-                const statusIcon = `<span class="user-status-icon status-${userStatus}" title="${statusTitle}"></span>`;
+                if (userStatus === 'online') {
+                    statusColor = '#3BA55C'; // 초록색
+                    statusTitle = t('status_online');
+                } else if (userStatus === 'away') {
+                    statusColor = '#FAA61A'; // 노란색
+                    statusTitle = t('status_away');
+                } else if (userStatus === 'dnd') {
+                    statusColor = '#ED4245'; // 빨간색
+                    statusTitle = t('status_dnd');
+                } else {
+                    statusColor = '#747F8D'; // 회색
+                    statusTitle = t('status_offline');
+                }
+                
+                const statusIcon = `<span class="user-status-circle" style="background-color: ${statusColor};" title="${statusTitle}"></span>`;
                 
                 // 음성 채널 아이콘 (현재 음성 채널에 있는 경우)
                 let voiceIcon = '';
@@ -6845,8 +7366,9 @@ function updateUsersList() {
                     <div class="user-item-avatar" style="${avatarStyle}"></div>
                     <div class="user-item-info">
                         <div class="user-item-name">${escapeHtml(user.name)}${isMe ? ` (${t('me')})` : ''}${roleBadge}</div>
-                        <div class="user-item-icons">
+                        <div class="user-item-status">
                             ${statusIcon}
+                            <span class="user-status-text">${statusTitle}</span>
                             ${voiceIcon}
                         </div>
                     </div>
@@ -6876,6 +7398,7 @@ function updateUsersList() {
         console.error('사용자 목록 업데이트 중 오류:', error);
     }
 }
+
 
 /**
  * 유틸리티 함수: 이름에서 색상 생성
