@@ -22,6 +22,12 @@
     --interactive-normal: #b9bbbe;
     --interactive-hover: #dcddde;
     --interactive-active: #fff;
+    
+    /* 상태 색상 */
+    --status-online: #3BA55C; /* 온라인 - 초록색 */
+    --status-away: #FAA61A; /* 자리비움 - 노란색 */
+    --status-dnd: #ED4245; /* 방해금지 - 빨간색 */
+    --status-offline: #747F8D; /* 오프라인 - 회색 */
 }
 
 /* 라이트 테마 변수 */
@@ -47,6 +53,12 @@
     --interactive-normal: #4f5660;
     --interactive-hover: #2e3338;
     --interactive-active: #060607;
+    
+    /* 상태 색상은 동일하게 유지 */
+    --status-online: #3BA55C;
+    --status-away: #FAA61A;
+    --status-dnd: #ED4245;
+    --status-offline: #747F8D;
 }
 
 * {
@@ -195,7 +207,12 @@ body {
     justify-content: space-between;
 }
 
-.channel::before {
+.channel-name {
+    display: flex;
+    align-items: center;
+}
+
+.channel-name:before {
     content: "#";
     margin-right: 5px;
     opacity: 0.7;
@@ -296,9 +313,52 @@ body {
     position: relative;
 }
 
+/* 사용자 정보 세부 스타일 추가 */
+.user-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
 .user-name {
     font-weight: 500;
-    flex: 1;
+}
+
+/* 사용자 상태 표시 개선 */
+.user-status-display {
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.user-status-circle {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.user-status-circle.status-online {
+    background-color: var(--status-online);
+}
+
+.user-status-circle.status-away {
+    background-color: var(--status-away);
+}
+
+.user-status-circle.status-dnd {
+    background-color: var(--status-dnd);
+}
+
+.user-status-circle.status-offline {
+    background-color: var(--status-offline);
+}
+
+.user-status-text {
+    font-size: 10px;
 }
 
 .user-menu-icon {
@@ -351,11 +411,39 @@ body {
     gap: 12px;
 }
 
+/* 연결 상태 표시 개선 */
 .connection-status {
     font-size: 12px;
     color: var(--text-muted);
     display: flex;
     align-items: center;
+    gap: 6px;
+}
+
+.connection-status-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--status-away); /* 기본값: 연결 중 */
+}
+
+.connection-status.connected .connection-status-indicator {
+    background-color: var(--status-online);
+}
+
+.connection-status.waiting .connection-status-indicator {
+    background-color: var(--status-away);
+    animation: blink 1.5s infinite;
+}
+
+.connection-status.disconnected .connection-status-indicator {
+    background-color: var(--status-dnd);
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
 }
 
 .chat-messages {
@@ -606,33 +694,95 @@ body {
     cursor: not-allowed;
 }
 
-/* 음성 채팅 컨트롤 */
+/* 음성 채팅 컨트롤 개선 */
 .voice-controls {
-    padding: 8px 16px;
+    padding: 12px 16px;
     background-color: var(--darker-bg);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     border-top: 1px solid rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
-.voice-control-info {
+.voice-header {
     display: flex;
     align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+}
+
+.voice-channel-name {
+    font-weight: bold;
+    color: var(--header-primary);
+}
+
+.voice-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.voice-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: var(--light-gray-bg);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+    color: var(--text-normal);
+}
+
+.voice-btn:hover {
+    background-color: var(--primary-color);
+    color: white;
+    transform: translateY(-2px);
+}
+
+.voice-btn:active {
+    transform: translateY(0);
+}
+
+.voice-btn.active {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+.voice-btn.disconnect {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+.voice-btn.disconnect:hover {
+    background-color: #c63235;
+}
+
+.voice-btn-icon {
+    font-size: 18px;
+    margin-bottom: 4px;
+}
+
+.voice-btn-text {
+    font-size: 12px;
 }
 
 .voice-users {
     display: flex;
-    gap: 4px;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 8px;
 }
 
 .voice-user {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     padding: 4px 8px;
     background-color: var(--light-gray-bg);
-    border-radius: 4px;
+    border-radius: 16px;
     font-size: 12px;
 }
 
@@ -666,30 +816,12 @@ body {
     color: var(--secondary-color);
 }
 
-.voice-control-buttons {
-    display: flex;
-    gap: 8px;
-}
-
-.voice-control-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    background-color: var(--light-gray-bg);
-    cursor: pointer;
-    transition: background-color 0.2s;
-    font-size: 18px;
-}
-
-.voice-control-btn:hover {
-    background-color: var(--primary-color);
-    color: white;
-}
-
-.voice-control-btn.active {
-    background-color: var(--danger-color);
-    color: white;
+.voice-loading {
+    text-align: center;
+    padding: 12px;
+    font-style: italic;
+    color: var(--text-muted);
+    animation: blink 1.5s infinite;
 }
 
 /* 우측 사용자 패널 */
@@ -738,22 +870,19 @@ body {
     font-weight: bold;
 }
 
+/* 사용자 항목 스타일 개선 */
 .user-item {
     display: flex;
     align-items: center;
-    padding: 6px 0;
+    padding: 8px;
     border-radius: var(--border-radius);
-    margin-bottom: 2px;
+    margin-bottom: 4px;
     transition: background-color var(--transition-speed);
-    position: relative;
+    cursor: pointer;
 }
 
 .user-item:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-}
-
-.light-theme .user-item:hover {
-    background-color: rgba(0, 0, 0, 0.03);
+    background-color: var(--channel-hover);
 }
 
 .user-item-avatar {
@@ -780,47 +909,59 @@ body {
     align-items: center;
 }
 
-.user-item-icons {
+.user-item-status {
     display: flex;
     align-items: center;
     gap: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
 }
 
-.user-status-icon {
+/* 사용자 상태 원형 아이콘 스타일 */
+.user-status-circle {
     display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    margin-left: 0;
+}
+
+.status-online {
+    background-color: var(--status-online);
+}
+
+.status-away {
+    background-color: var(--status-away);
+}
+
+.status-dnd {
+    background-color: var(--status-dnd);
+}
+
+.status-offline {
+    background-color: var(--status-offline);
 }
 
 .user-voice-icon {
     font-size: 10px;
     color: var(--secondary-color);
+    margin-left: 4px;
 }
 
-.status-online {
-    background-color: var(--secondary-color);
-}
-
-.status-away {
-    background-color: var(--warning-color);
-}
-
-.status-dnd {
-    background-color: var(--danger-color);
-}
-
-.status-offline {
-    background-color: var(--gray-text);
-}
-
-/* 새 메시지 표시 */
+/* 새 메시지 표시 개선 */
 .new-messages-indicator {
     width: 8px;
     height: 8px;
     background-color: var(--primary-color);
     border-radius: 50%;
+    margin-left: 6px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(88, 101, 242, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(88, 101, 242, 0); }
 }
 
 .channel.has-new-messages {
@@ -828,11 +969,22 @@ body {
     color: var(--interactive-active);
 }
 
+.channel.has-new-messages .channel-name:after {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    margin-left: 6px;
+    animation: pulse 2s infinite;
+}
+
 /* 타이핑 인디케이터 */
 .typing-indicator {
     font-size: 12px;
     color: var(--text-muted);
-    padding: 4px 16px;
+    padding: 8px 16px;
     font-style: italic;
     position: absolute;
     bottom: 60px;
@@ -1656,7 +1808,7 @@ input:checked + .slider:before {
     to { transform: rotate(360deg); }
 }
 
-/* 접속 상태 표시 */
+/* 접속 상태 표시 개선 */
 .connection-status.connected {
     color: var(--secondary-color);
 }
@@ -1776,7 +1928,22 @@ input:checked + .slider:before {
         width: 32px;
         height: 32px;
     }
+    
+    .voice-controls {
+        padding: 8px;
+    }
+    
+    .voice-buttons {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .voice-btn {
+        min-width: 80px;
+        margin: 4px;
+    }
 }
+
 #userNameModalInput, #joinCodeModalInput {
     padding: 12px 16px;
     border: none;
