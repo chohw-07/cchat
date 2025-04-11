@@ -111,7 +111,11 @@
                     <span id="addChannelIcon" class="add-icon" title="채널 추가">+</span>
                 </div>
                 <div class="channels-list" id="channelsList">
-                    <div class="channel active" data-channel="general">일반</div>
+                    <div class="channel active" data-channel="general">
+                        <div class="channel-content">
+                            <span class="channel-name">일반</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             <!-- 음성 채널 섹션 -->
@@ -136,7 +140,13 @@
             <!-- 사용자 정보 -->
             <div class="user-info" id="userInfo">
                 <div class="user-avatar" id="userAvatar"></div>
-                <div class="user-name" id="userName">사용자</div>
+                <div class="user-details">
+                    <div class="user-name" id="userName">사용자</div>
+                    <div class="user-status-display">
+                        <span class="user-status-circle status-online"></span>
+                        <span class="user-status-text">온라인</span>
+                    </div>
+                </div>
                 <div class="user-menu-icon">⚙️</div>
             </div>
         </div>
@@ -148,7 +158,10 @@
                 <div class="chat-header">
                     <h2 id="roomName">채팅방</h2>
                     <div class="header-actions">
-                        <div class="connection-status" id="connectionStatus">연결 중...</div>
+                        <div class="connection-status" id="connectionStatus">
+                            <span class="connection-status-indicator"></span>
+                            <span class="connection-status-text">연결 중...</span>
+                        </div>
                         <button id="inviteBtn" class="invite-button" data-i18n="invite_friends">초대하기</button>
                     </div>
                 </div>
@@ -156,14 +169,24 @@
                 <div class="typing-indicator hidden" id="typingIndicator"></div>
                 <!-- 음성 채팅 컨트롤 -->
                 <div class="voice-controls hidden" id="voiceControls">
-                    <div class="voice-control-info">
-                        <div class="voice-users" id="voiceUsers"></div>
+                    <div class="voice-header">
+                        <span class="voice-channel-name">음성 채팅</span>
                     </div>
-                    <div class="voice-control-buttons">
-                        <button class="voice-control-btn" id="muteBtn" title="음소거">🎤</button>
-                        <button class="voice-control-btn" id="deafenBtn" title="헤드셋 끄기">🎧</button>
-                        <button class="voice-control-btn" id="disconnectBtn" title="연결 끊기">⏏️</button>
+                    <div class="voice-buttons">
+                        <button id="muteBtn" class="voice-btn" title="음소거">
+                            <span class="voice-btn-icon">🎤</span>
+                            <span class="voice-btn-text">음소거</span>
+                        </button>
+                        <button id="deafenBtn" class="voice-btn" title="헤드셋 끄기">
+                            <span class="voice-btn-icon">🔊</span>
+                            <span class="voice-btn-text">헤드셋</span>
+                        </button>
+                        <button id="disconnectBtn" class="voice-btn disconnect" title="연결 끊기">
+                            <span class="voice-btn-icon">❌</span>
+                            <span class="voice-btn-text">나가기</span>
+                        </button>
                     </div>
+                    <div id="voiceUsers" class="voice-users"></div>
                 </div>
                 <div class="chat-input-area">
                     <div class="chat-input-tools">
